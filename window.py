@@ -388,8 +388,11 @@ class JimmyWindow(QMainWindow):
         title.setFont(f)
         self.subtitle = QLabel("● en ligne")
         self.subtitle.setObjectName("subtitle")
+        self.version_lbl = QLabel(f"version {__version__}")   # sur sa propre ligne : en bout de sous-titre elle était coupée
+        self.version_lbl.setObjectName("subtitle")
         title_box.addWidget(title)
         title_box.addWidget(self.subtitle)
+        title_box.addWidget(self.version_lbl)
         brand.addLayout(title_box)
         brand.addStretch(1)
         sl.addLayout(brand)
@@ -957,7 +960,7 @@ class JimmyWindow(QMainWindow):
         alias = self.bridge.effective_model()
         model = MODEL_NAMES.get(alias, alias) or "modèle par défaut"
         eco = "  ·  éco" if self._eco_on else ""
-        self.subtitle.setText(f"● en ligne  ·  {model}{eco}  ·  v{__version__}")
+        self.subtitle.setText(f"● en ligne  ·  {model}{eco}")
 
     def _set_cost(self, key: str, value: str) -> None:
         self.cfg.set(key, value or "")
