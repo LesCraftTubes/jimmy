@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#06080f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Jimmy</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Jumelage : première ouverture, ou clé révoquée -->
+<main id="pair" class="screen" hidden>
+  <div class="pair-card">
+    <canvas class="orb orb-big" width="220" height="220" aria-hidden="true"></canvas>
+    <h1>Jimmy</h1>
+    <p class="lead">Relie ce téléphone à Jimmy sur ton PC.</p>
+    <ol class="how">
+      <li>Sur le PC, ouvre Jimmy puis <b>Réglages › Appli mobile</b>.</li>
+      <li>Scanne le QR code avec l'appareil photo de ce téléphone, ou tape le code ci-dessous.</li>
+    </ol>
+    <form id="pair-form" autocomplete="off">
+      <input id="pair-code" inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="CODE DU PC" aria-label="Code de jumelage">
+      <button type="submit" class="primary">Relier</button>
+    </form>
+    <p id="pair-msg" class="msg" role="status"></p>
+  </div>
+</main>
+
+<!-- Application -->
+<div id="app" class="screen" hidden>
+  <header>
+    <canvas id="orb" class="orb" width="96" height="96" aria-hidden="true"></canvas>
+    <button id="btn-title" class="title" type="button" aria-label="Changer de discussion">
+      <strong>Jimmy</strong>
+      <span id="status" class="status">Connexion…</span>
+      <span id="convo" class="convo" hidden></span>
+    </button>
+    <button id="btn-convos" class="icon" aria-label="Discussions">☰</button>
+    <button id="btn-menu" class="icon" aria-label="Réglages">⚙</button>
+  </header>
+
+  <div id="offline" class="banner" hidden>Hors ligne. Le PC doit être allumé, avec Jimmy ouvert.</div>
+
+  <section id="chat" aria-live="polite"></section>
+
+  <div id="working" class="working" hidden>
+    <span class="dots"><i></i><i></i><i></i></span>
+    <span id="working-text">Jimmy travaille…</span>
+  </div>
+
+  <footer>
+    <div id="live" class="live" hidden></div>
+    <form id="composer">
+      <textarea id="input" rows="1" placeholder="Écris ou parle à Jimmy…" aria-label="Message"></textarea>
+      <button type="button" id="btn-mic" class="mic" aria-label="Parler" hidden>
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4zm6-4a6 6 0 0 1-12 0H4a8 8 0 0 0 7 7.93V22h2v-3.07A8 8 0 0 0 20 11h-2z"/></svg>
+      </button>
+      <button type="submit" id="btn-send" class="send" aria-label="Envoyer">➤</button>
+    </form>
+    <button type="button" id="btn-stop" class="stop" hidden>■ Stop</button>
+  </footer>
+
+  <!-- Discussions : les mêmes que sur le PC -->
+  <div id="convos" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Discussions">
+      <h2>Discussions</h2>
+      <p class="fine left">Les mêmes que sur le PC : en choisir une ici l'ouvre aussi sur l'ordinateur.</p>
+      <button type="button" id="btn-new2" class="primary wide">＋ Nouvelle discussion</button>
+      <ul id="convo-list" class="convo-list"></ul>
+      <div class="actions"><button type="button" id="btn-close2">Fermer</button></div>
+    </div>
+  </div>
+
+  <!-- Réglages -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Réglages">
+      <h2>Réglages</h2>
+      <label class="row"><span>Jimmy me répond à voix haute</span><input type="checkbox" id="opt-tts"></label>
+      <label class="row"><span>Conversation continue<small>après sa réponse, Jimmy se remet à écouter tout seul</small></span><input type="checkbox" id="opt-converse"></label>
+      <label class="row"><span>Garder l'écran allumé<small>pendant la conversation continue</small></span><input type="checkbox" id="opt-awake"></label>
+      <div class="row"><span>Vitesse de la voix</span><input type="range" id="opt-rate" min="0.8" max="1.5" step="0.05"></div>
+      <div class="actions">
+        <button type="button" id="btn-new">Nouvelle discussion</button>
+        <button type="button" id="btn-unpair" class="danger">Délier ce téléphone</button>
+        <button type="button" id="btn-close" class="primary">Fermer</button>
+      </div>
+      <p class="fine" id="about"></p>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+# Facultatif : scripts personnels (Discord, YouTube...) qui ne font pas partie de la version publique.
+pywinauto

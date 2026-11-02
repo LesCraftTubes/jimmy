@@ -1,0 +1,11 @@
+# Jimmy : dépendances de base (CPU). Voir requirements-gpu.txt pour la reconnaissance vocale sur carte NVIDIA.
+PySide6>=6.6
+numpy
+sounddevice
+faster-whisper>=1.0
+edge-tts>=6.1
+pygame>=2.5
+pyttsx3
+piper-tts>=1.3
+aiohttp>=3.9
+segno>=1.6

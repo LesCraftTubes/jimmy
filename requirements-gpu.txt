@@ -1,0 +1,3 @@
+# Facultatif : reconnaissance vocale accélérée par une carte NVIDIA (mettre "whisper_device": "cuda" dans config.json).
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

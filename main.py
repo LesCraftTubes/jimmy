@@ -1,0 +1,143 @@
+"""Jimmy : assistant vocal relié à Claude Code."""
+import os
+import sys
+
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+
+# Jimmy.exe sert aussi de serveur d'autorisation pour Claude Code (sans Python installé sur le PC).
+if "--perm-mcp" in sys.argv:
+    import perm_mcp
+    perm_mcp.main()
+    sys.exit(0)
+
+
+if "--selftest" in sys.argv:
+    # Diagnostic sans interface : écrit selftest.txt dans le dossier de données.
+    from main_streams import fix_streams
+    fix_streams()
+    import selftest
+    print(selftest.run())
+    sys.exit(0)
+
+
+from main_streams import fix_streams
+
+fix_streams()
+
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtGui import QFont
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
+
+import updater
+from config import Config
+from icon import make_icon
+from version import APP_NAME, UPDATE_REPO, __version__
+
+SOCKET_NAME = "JimmyAssistantSingleInstance"
+
+
+class _UpdateWorker(QObject):
+    found = Signal(object)
+
+    def __init__(self, repo: str):
+        super().__init__()
+        self.repo = repo
+
+    def run(self) -> None:
+        u = updater.check(self.repo)
+        if u:
+            self.found.emit(u)
+
+
+def _offer_update(win, update) -> None:
+    box = QMessageBox(win)
+    box.setWindowTitle("Mise à jour de Jimmy")
+    box.setText(f"Jimmy {update.version} est disponible (tu as la {__version__}).")
+    if update.notes:
+        box.setInformativeText(update.notes)
+    if not updater.can_self_update():
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec()
+        return
+    box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+    box.button(QMessageBox.Yes).setText("Installer maintenant")
+    box.button(QMessageBox.No).setText("Plus tard")
+    if box.exec() != QMessageBox.Yes:
+        return
+    dlg = QProgressDialog("Téléchargement de la mise à jour…", None, 0, 100, win)
+    dlg.setWindowTitle("Jimmy")
+    dlg.setMinimumDuration(0)
+    dlg.show()
+    QApplication.processEvents()
+    try:
+        path = updater.download(update, lambda d, t: (dlg.setValue(int(d * 100 / t) if t else 0), QApplication.processEvents()))
+    except Exception as e:  # noqa: BLE001
+        dlg.close()
+        QMessageBox.warning(win, "Jimmy", f"Téléchargement impossible : {e}")
+        return
+    dlg.close()
+    updater.run_installer(path)
+    QApplication.quit()
+
+
+def main() -> None:
+    if os.name == "nt":
+        # Icône propre dans la barre des tâches (sinon Windows affiche celle de Python).
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Jimmy.Assistant")
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setFont(QFont("Segoe UI", 10))
+    app.setWindowIcon(make_icon())
+
+    # Une seule fenêtre de Jimmy : un second lancement réveille la première.
+    probe = QLocalSocket()
+    probe.connectToServer(SOCKET_NAME)
+    if probe.waitForConnected(300):
+        probe.write(b"show")
+        probe.flush()
+        probe.waitForBytesWritten(300)
+        return
+    server = QLocalServer()
+    QLocalServer.removeServer(SOCKET_NAME)
+    server.listen(SOCKET_NAME)
+
+    cfg = Config.load()
+    import setup_wizard
+    setup_wizard.run_if_needed(cfg)
+
+    from window import JimmyWindow
+    win = JimmyWindow(cfg)
+
+    def _wake() -> None:
+        conn = server.nextPendingConnection()
+        if conn:
+            conn.readAll()
+            conn.close()
+        win.showNormal()
+        win.raise_()
+        win.activateWindow()
+
+    server.newConnection.connect(_wake)
+    win.show_animated()
+    if getattr(sys, "frozen", False) and not cfg.get("workdir") and not cfg.get("folder_prompted"):
+        cfg.set("folder_prompted", True)      # une seule fois : Annuler garde le dossier personnel
+        QTimer.singleShot(1200, win.on_folder)
+
+    # Mises à jour : un coup d'œil discret au démarrage, sur le dépôt GitHub indiqué dans les réglages.
+    thread = QThread()
+    repo = str(cfg.get("update_repo") or UPDATE_REPO)
+    worker = _UpdateWorker(repo)
+    if cfg.get("update_check", True) and repo:
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.found.connect(lambda u: _offer_update(win, u))
+        QTimer.singleShot(8000, thread.start)
+    app.aboutToQuit.connect(lambda: (thread.quit(), thread.wait(1500)))
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
