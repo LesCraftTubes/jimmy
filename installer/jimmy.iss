@@ -44,3 +44,22 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\Jimmy.exe"; Description: "Lancer Jimmy"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Mise à jour : si Jimmy est déjà installé, on garde le dossier et les options d'avant,
+// on ne repose aucune question (bureau, démarrage...).
+var
+  IsUpgrade: Boolean;
+
+function InitializeSetup(): Boolean;
+begin
+  IsUpgrade := RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7E1D6A2-5C0F-4E2B-9B7A-6E8F1A2C3D40}_is1')
+            or RegKeyExists(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7E1D6A2-5C0F-4E2B-9B7A-6E8F1A2C3D40}_is1');
+  Result := True;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := IsUpgrade and ((PageID = wpWelcome) or (PageID = wpSelectDir) or (PageID = wpSelectProgramGroup)
+                           or (PageID = wpSelectTasks) or (PageID = wpReady));
+end;

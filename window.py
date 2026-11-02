@@ -34,6 +34,7 @@ from claude_bridge import ClaudeBridge, ClaudeError
 from remote_dialog import RemoteDialog
 from remote_manager import RemoteManager
 from config import ACCENTS, MODEL_NAMES, Config
+from version import __version__
 from icon import make_icon
 from listener import Listener
 from models import whisper_progress
@@ -956,7 +957,7 @@ class JimmyWindow(QMainWindow):
         alias = self.bridge.effective_model()
         model = MODEL_NAMES.get(alias, alias) or "modèle par défaut"
         eco = "  ·  éco" if self._eco_on else ""
-        self.subtitle.setText(f"● en ligne  ·  {model}{eco}")
+        self.subtitle.setText(f"● en ligne  ·  {model}{eco}  ·  v{__version__}")
 
     def _set_cost(self, key: str, value: str) -> None:
         self.cfg.set(key, value or "")

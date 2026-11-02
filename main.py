@@ -24,7 +24,7 @@ from main_streams import fix_streams
 
 fix_streams()
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
@@ -45,9 +45,28 @@ class _UpdateWorker(QObject):
         self.repo = repo
 
     def run(self) -> None:
-        u = updater.check(self.repo)
+        try:
+            u = updater.check(self.repo)
+        except Exception:  # noqa: BLE001
+            u = None
         if u:
             self.found.emit(u)
+
+
+class _UpdateReceiver(QObject):
+    """Vit dans le fil de l'interface : la fenêtre de mise à jour ne doit jamais s'ouvrir depuis le fil réseau."""
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+
+    @Slot(object)
+    def on_found(self, update) -> None:
+        try:
+            _offer_update(self.win, update)
+        except Exception:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
 
 
 def _offer_update(win, update) -> None:
@@ -133,7 +152,8 @@ def main() -> None:
     if cfg.get("update_check", True) and repo:
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.found.connect(lambda u: _offer_update(win, u))
+        receiver = _UpdateReceiver(win)      # garde une référence : sinon il serait détruit
+        worker.found.connect(receiver.on_found, Qt.QueuedConnection)
         QTimer.singleShot(8000, thread.start)
     app.aboutToQuit.connect(lambda: (thread.quit(), thread.wait(1500)))
     sys.exit(app.exec())
