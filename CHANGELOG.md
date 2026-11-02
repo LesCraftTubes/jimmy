@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 1.0.7
+- Titres du markdown bien plus gros, en couleur d'accent, avec de l'air autour : les réponses longues sont plus lisibles.
+- Mode normal : Jimmy répond du tac au tac (une à trois phrases, sans introduction ni politesse ni récapitulatif).
+- Mode long : réponses développées et organisées dans un ordre logique, avec titres, listes et gras.
+
 ## 1.0.6
 - Réponses mieux mises en forme : listes, titres et retours à la ligne s'affichent proprement, les points ou symboles isolés disparaissent.
 - Jimmy reçoit des consignes de mise en forme markdown plus précises.
@@ -24,5 +29,6 @@
 
 ## 1.0.0
 - Première version publique : voix, connexion à Claude, appli mobile, changement de discussion téléphone ↔ PC.
+
 
 

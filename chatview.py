@@ -6,7 +6,7 @@ import re
 import time
 
 from PySide6.QtCore import QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QTextBrowser
 
 import theme
@@ -137,10 +137,39 @@ class ChatView(QTextBrowser):
         try:
             cur.setCharFormat(QTextCharFormat())     # repart d'un style neutre (rien ne « fuit » du texte précédent)
             cur.setBlockFormat(QTextBlockFormat())
+            start = cur.position()
             cur.insertMarkdown(part)
+            self._style_headings(start, cur.position())
         except Exception:  # noqa: BLE001
             _insert(cur, html.escape(part).replace("\n", "<br>"))
         cur.insertBlock()
+        cur.setBlockFormat(QTextBlockFormat())    # le bloc suivant ne garde pas le style d'un titre
+        cur.setCharFormat(QTextCharFormat())
+
+    def _style_headings(self, start: int, end: int) -> None:
+        """Titres markdown : bien plus gros que le texte, en couleur d'accent, avec de l'air autour
+        (le rendu par défaut de Qt les distingue à peine)."""
+        base = self.font().pointSizeF()
+        if base <= 0:
+            base = 10.0
+        scale = {1: 1.9, 2: 1.55, 3: 1.3, 4: 1.15}
+        doc = self.document()
+        block = doc.findBlock(start)
+        while block.isValid() and block.position() < end:
+            level = block.blockFormat().headingLevel()
+            if level:
+                c = QTextCursor(block)
+                c.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                cf = QTextCharFormat()
+                cf.setFontPointSize(base * scale.get(level, 1.1))
+                cf.setFontWeight(700)
+                cf.setForeground(QColor(theme.shift_hex("#22d3ee") if level <= 2 else theme.shift_hex("#a5f3fc")))
+                c.mergeCharFormat(cf)
+                bf = QTextBlockFormat()
+                bf.setTopMargin(12 if level <= 2 else 8)
+                bf.setBottomMargin(4)
+                c.mergeBlockFormat(bf)
+            block = block.next()
 
     def _insert_code(self, cur: QTextCursor, lang: str, code: str) -> None:
         idx = len(self._snippets)
