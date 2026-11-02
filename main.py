@@ -100,7 +100,29 @@ def _offer_update(win, update) -> None:
     QApplication.quit()
 
 
+def _other_instance(wait: bool = False, patience: float = 20.0) -> bool:
+    """True si un autre Jimmy tourne (on le réveille alors). Avec wait=True (redémarrage), on laisse
+    d'abord à l'ancien Jimmy le temps de se fermer ; s'il est encore là après `patience` secondes, on le réveille."""
+    import time
+    deadline = time.monotonic() + (patience if wait else 0)
+    while True:
+        probe = QLocalSocket()
+        probe.connectToServer(SOCKET_NAME)
+        if not probe.waitForConnected(300):
+            return False
+        if wait and time.monotonic() < deadline:
+            probe.abort()
+            time.sleep(0.4)
+            continue
+        probe.write(b"show")
+        probe.flush()
+        probe.waitForBytesWritten(300)
+        return True
+
+
 def main() -> None:
+    restarting = "--restart" in sys.argv       # lancé par « redémarrer » : on attend la fermeture de l'ancien
+    sys.argv = [a for a in sys.argv if a != "--restart"]
     if os.name == "nt":
         # Icône propre dans la barre des tâches (sinon Windows affiche celle de Python).
         import ctypes
@@ -112,12 +134,8 @@ def main() -> None:
     app.setWindowIcon(make_icon())
 
     # Une seule fenêtre de Jimmy : un second lancement réveille la première.
-    probe = QLocalSocket()
-    probe.connectToServer(SOCKET_NAME)
-    if probe.waitForConnected(300):
-        probe.write(b"show")
-        probe.flush()
-        probe.waitForBytesWritten(300)
+    # Sauf après « redémarrer » : l'ancienne fenêtre est en train de se fermer, on l'attend au lieu de la réveiller.
+    if _other_instance(wait=restarting):
         return
     server = QLocalServer()
     QLocalServer.removeServer(SOCKET_NAME)

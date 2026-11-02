@@ -22,7 +22,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
-RestartApplications=yes
+; Pas de « redémarrage des applications » de Windows (peu fiable) : on relance Jimmy nous-mêmes, voir [Run].
+RestartApplications=no
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
@@ -44,6 +45,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\Jimmy.exe"; Description: "Lancer Jimmy"; Flags: nowait postinstall skipifsilent
+; Mise à jour automatique (mode discret) : Jimmy se rouvre tout seul à la fin.
+Filename: "{app}\Jimmy.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [Code]
 // Mise à jour : si Jimmy est déjà installé, on garde le dossier et les options d'avant,

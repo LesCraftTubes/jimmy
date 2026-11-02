@@ -937,10 +937,16 @@ class JimmyWindow(QMainWindow):
     def restart_app(self) -> None:
         """Ferme Jimmy et le rouvre (pour appliquer les réglages qui demandent un redémarrage)."""
         from PySide6.QtCore import QProcess
-        args = sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv
+        args = list(sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv)
+        if "--restart" not in args:
+            args.append("--restart")   # le nouveau Jimmy attend que celui-ci soit fermé avant de s'ouvrir
         QProcess.startDetached(sys.executable, args, os.getcwd())
         self.close()
         QApplication.quit()
+        # Filet de sécurité : si un petit programme en arrière-plan empêche la fermeture, on force la sortie.
+        guard = threading.Timer(6.0, lambda: os._exit(0))
+        guard.daemon = True
+        guard.start()
 
     def _update_eco(self) -> None:
         """Mode économie auto : annonce le changement de modèle quand le seuil est franchi."""

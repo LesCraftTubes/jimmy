@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 1.0.8
+- Après une mise à jour, Jimmy se rouvre tout seul (avant il restait fermé).
+- Le bouton redémarrer (et le redémarrage après un changement de réglage vocal) rouvre vraiment Jimmy : le nouveau attend que l'ancien soit fermé au lieu de s'arrêter.
+
 ## 1.0.7
 - Titres du markdown bien plus gros, en couleur d'accent, avec de l'air autour : les réponses longues sont plus lisibles.
 - Mode normal : Jimmy répond du tac au tac (une à trois phrases, sans introduction ni politesse ni récapitulatif).
@@ -29,6 +33,7 @@
 
 ## 1.0.0
 - Première version publique : voix, connexion à Claude, appli mobile, changement de discussion téléphone ↔ PC.
+
 
 
 
