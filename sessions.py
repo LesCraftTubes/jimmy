@@ -12,6 +12,12 @@ from pathlib import Path
 _SKIP_PREFIXES = ("<command", "<local-command", "<system-reminder", "Caveat:", "[Request interrupted")
 
 
+_TECH_TAGS = re.compile(
+    r"<(system-reminder|command-name|command-message|command-args|local-command-stdout|local-command-caveat|"
+    r"task-notification|ide_opened_file|ide_selection|user-prompt-submit-hook|bash-input|bash-stdout|bash-stderr)"
+    r"(?:\s[^>]*)?>.*?</\1>", re.S)
+
+
 def projects_root() -> Path:
     return Path.home() / ".claude" / "projects"
 
@@ -30,8 +36,12 @@ def _user_text(content) -> str:
         text = "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
     else:
         return ""
-    text = text.strip()
-    return "" if not text or text.startswith(_SKIP_PREFIXES) else text
+    # Balises techniques collées dans le message (rappels système, notifications...) : jamais affichées.
+    text = _TECH_TAGS.sub("", text.strip())
+    text = re.sub(r"</?pasted_content[^>]*>", "", text).strip()
+    if text.startswith("[Reprise de contexte"):
+        return "↺ Reprise de la discussion précédente."
+    return "" if text.startswith(_SKIP_PREFIXES) else text
 
 
 def _assistant_text(content) -> str:

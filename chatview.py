@@ -6,10 +6,11 @@ import re
 import time
 
 from PySide6.QtCore import QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextCursor
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QTextBrowser
 
 import theme
+from textutils import prepare_markdown
 
 _CODE_RE = re.compile(r"```([\w+#.-]*)[^\n]*\n(.*?)```", re.S)
 _GLYPHS = "▓▒░<>/\\|_#@$%&01ア力ヌ"
@@ -130,10 +131,12 @@ class ChatView(QTextBrowser):
         self._insert_markdown(cur, text[pos:])
 
     def _insert_markdown(self, cur: QTextCursor, part: str) -> None:
-        part = part.strip("\n")
+        part = prepare_markdown(part)
         if not part.strip():
             return
         try:
+            cur.setCharFormat(QTextCharFormat())     # repart d'un style neutre (rien ne « fuit » du texte précédent)
+            cur.setBlockFormat(QTextBlockFormat())
             cur.insertMarkdown(part)
         except Exception:  # noqa: BLE001
             _insert(cur, html.escape(part).replace("\n", "<br>"))

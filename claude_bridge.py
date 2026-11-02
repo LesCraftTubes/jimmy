@@ -40,7 +40,9 @@ LONG_STYLE = (
 SPEECH_RULES = (
     "Les blocs de code s'affichent à l'écran avec un bouton copier mais ne sont jamais lus : "
     "juste avant chaque bloc, dis en une phrase ce qu'il fait et ce que l'utilisateur doit en faire. "
-    "Pas de tableaux ni de liens bruts. Termine par une question uniquement si tu attends vraiment "
+    "Pas de tableaux ni de liens bruts. Mise en forme markdown propre : paragraphes courts separes par une ligne vide, "
+    "listes avec un tiret, gras avec deux etoiles pour les mots cles, noms de fichiers ou de commandes entre accents graves, "
+    "code dans un bloc avec son langage, jamais de points ou de symboles isoles et pas de puces decoratives. Termine par une question uniquement si tu attends vraiment "
     "une réponse de l'utilisateur. "
 )
 SYSTEM_PROMPT = (

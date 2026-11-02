@@ -150,6 +150,43 @@ def looks_unfinished(text: str) -> bool:
     return bool(words) and words[-1] in _UNFINISHED
 
 
+_BULLET_RE = re.compile(r"^(\s*)[•·–—▪●◦]\s+")
+_LIST_RE = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])\s+")
+_BLOCK_START_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s|>|[-*_]{3,}\s*$|\|)")
+
+
+def prepare_markdown(text: str) -> str:
+    """Nettoie une réponse avant l'affichage markdown (le rendu de Qt est strict) :
+    puces unicode -> « - », ligne vide avant les listes et titres, retours à la ligne gardés,
+    points ou symboles isolés retirés, lignes vides en trop supprimées."""
+    t = text.replace("\r\n", "\n").replace("\r", "\n").replace(" ", " ").replace("​", "")
+    out: list = []
+    prev_plain = False      # la ligne précédente est un simple paragraphe
+    for raw in t.split("\n"):
+        ln = raw.rstrip()
+        if re.fullmatch(r"\s*[.·•…,;:]+\s*", ln):
+            ln = ""                                   # point (ou virgule...) tout seul sur une ligne
+        ln = _BULLET_RE.sub(r"\1- ", ln)
+        ln = re.sub(r"^(\s{0,3}#{1,6})(?=[^#\s])", r"\1 ", ln)   # « #Titre » -> « # Titre »
+        if not ln.strip():
+            if out and out[-1] != "":
+                out.append("")
+            prev_plain = False
+            continue
+        is_list = bool(_LIST_RE.match(ln))
+        is_block = is_list or bool(_BLOCK_START_RE.match(ln))
+        indented = ln.startswith(("  ", "\t")) and not is_list
+        if is_block and out and out[-1] != "" and not (is_list and not prev_plain):
+            out.append("")                            # liste / titre collé à un paragraphe : on aère
+        elif prev_plain and not is_block and not indented:
+            out[-1] = out[-1] + "  "                  # retour à la ligne conservé (pas collé en une ligne)
+        out.append(ln)
+        prev_plain = not is_block and not indented
+        if re.match(r"^\s{0,3}#{1,6}\s", ln):
+            prev_plain = False
+    return "\n".join(out).strip("\n")
+
+
 def clean_for_tts(text: str) -> str:
     """Retire ce qui ne doit pas être lu à voix haute (code, liens, symboles markdown)."""
     t = re.sub(r"```.*?```", " ", text, flags=re.S)
