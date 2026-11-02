@@ -205,6 +205,9 @@ class Listener(QObject):
             "télécharge (5 à 10 minutes selon ta connexion) : laisse la fenêtre ouverte."
         )
         _add_cuda_dlls()
+        # Téléchargement classique et sans liens symboliques : plus fiable sous Windows (antivirus, réseaux filtrés).
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
         from faster_whisper import WhisperModel
 
         device = self.cfg.get("whisper_device", "cpu")
@@ -228,11 +231,39 @@ class Listener(QObject):
                 self._wake_model = self._model
         self.status.emit("Reconnaissance vocale prête.")
 
+    @property
+    def ready(self) -> bool:
+        return self._model is not None
+
+    def retry(self) -> bool:
+        """Relance le chargement du modèle vocal s'il a échoué (clic sur Parler). Renvoie True si relancé."""
+        if self._model is None and not (self._thread and self._thread.is_alive()):
+            self.start()
+            return True
+        return False
+
     def _run(self) -> None:
-        try:
-            self._load_model()
-        except Exception as e:  # noqa: BLE001
-            self.error.emit(f"Impossible de charger la reconnaissance vocale : {e}")
+        # Le téléchargement peut échouer (réseau coupé, antivirus, disque plein) : on réessaie plusieurs fois,
+        # le téléchargement reprend là où il s'était arrêté.
+        last = None
+        for attempt in range(5):
+            if self._stop.is_set():
+                return
+            try:
+                self._load_model()
+                last = None
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+                if attempt < 4:
+                    wait = 5 * (attempt + 1)
+                    self.status.emit(f"Chargement vocal interrompu ({type(e).__name__}: {e}). Nouvel essai dans {wait} s…")
+                    time.sleep(wait)
+        if last is not None:
+            self.error.emit(
+                f"Impossible de charger la reconnaissance vocale : {type(last).__name__}: {last}. "
+                "Vérifie ta connexion internet, puis clique sur « Parler » pour réessayer."
+            )
             self._set_state("idle")
             return
         while not self._stop.is_set():

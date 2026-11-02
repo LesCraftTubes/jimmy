@@ -1339,6 +1339,9 @@ class JimmyWindow(QMainWindow):
             return
         if self.btn_mute.isChecked():
             self.btn_mute.setChecked(False)
+        if self.listener.retry():   # le modèle vocal n'avait pas pu se charger : on relance
+            self.add_system("Je relance le chargement de la reconnaissance vocale…")
+            return
         self.listener.listen_now()
 
     def on_stop(self) -> None:
@@ -1425,7 +1428,11 @@ class JimmyWindow(QMainWindow):
         if self.listener.state == "wake" and not self.busy:
             self.set_state("wake")
         if any(self.cfg.get(k) != v for k, v in old_restart.items()):
-            self.btn_restart.show()   # redémarrage nécessaire : le bouton ⏻ apparaît en haut
+            # Le modèle vocal / la langue ne se changent qu'au démarrage : Jimmy se relance tout seul
+            # (le nouveau modèle se télécharge alors, avec le pourcentage affiché).
+            self.btn_restart.show()
+            self.add_system("Réglage vocal modifié : je redémarre pour l'appliquer…")
+            QTimer.singleShot(1200, self.restart_app)
 
     def closeEvent(self, event) -> None:
         if self.remote is not None:
