@@ -28,6 +28,32 @@ def _compute(device: str) -> str:
     return "int8" if device in ("cpu", "auto") else "float16"
 
 
+def _own_model_dir(name: str) -> str:
+    """Dossier des modèles vocaux propre à Jimmy (vrais fichiers, pas de liens symboliques)."""
+    base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Jimmy", "models", name)
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+def _heal_model_cache(name: str) -> None:
+    """Supprime l'entrée du cache Hugging Face d'un modèle si elle contient des liens cassés (0 octet).
+
+    Elle ne contient alors aucune donnée utile : le modèle sera simplement retéléchargé.
+    """
+    import shutil
+    root = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    for d in glob.glob(os.path.join(root, f"models--*--faster-whisper-{name}")):
+        broken = False
+        for sub in ("blobs", "snapshots"):
+            for dirpath, _dirs, files in os.walk(os.path.join(d, sub)):
+                for f in files:
+                    p = os.path.join(dirpath, f)
+                    if os.path.islink(p) and not os.path.exists(p):
+                        broken = True
+        if broken:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 def _add_cuda_dlls() -> None:
     """Rend visibles les bibliothèques CUDA installées par pip (nvidia-cublas-cu12, nvidia-cudnn-cu12)."""
     base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
@@ -189,11 +215,21 @@ class Listener(QObject):
 
         last = None
         for attempt in range(4):
+            _heal_model_cache(name)
             for local_only in (True, False):
                 try:
                     return WhisperModel(name, device=device, compute_type=compute, local_files_only=local_only)
                 except Exception as e:  # noqa: BLE001
                     last = e
+            # Le cache de Windows pose problème (liens cassés, « point de montage non approuvé »...) :
+            # on télécharge le modèle dans le dossier de Jimmy, en vrais fichiers, sans liens.
+            try:
+                from faster_whisper.utils import download_model
+                folder = _own_model_dir(name)
+                path = download_model(name, output_dir=folder)
+                return WhisperModel(path, device=device, compute_type=compute)
+            except Exception as e:  # noqa: BLE001
+                last = e
             self.status.emit(f"Le modèle vocal n'a pas pu s'ouvrir ({last}). Nouvelle tentative dans {2 * (attempt + 1)} s…")
             time.sleep(2 * (attempt + 1))
         raise last
