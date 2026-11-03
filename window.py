@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QEasingCurve, QObject, QPoint, QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -115,9 +115,26 @@ class PromptEdit(QPlainTextEdit):
         super().keyPressEvent(e)
 
     def _fit(self) -> None:
-        lines = max(1, min(10, int(self.document().size().height())))
+        # Nombre de lignes affichées (retours à la ligne automatiques compris).
+        lines_all = max(1, int(self.document().size().height() + 0.5))
+        lines = min(10, lines_all)
+        # Hauteur d'une ligne avec la police réellement affichée (celle de la feuille de style, pas la police par défaut).
         line_h = self.fontMetrics().lineSpacing()
-        self.setFixedHeight(line_h * lines + 26)
+        self.setFixedHeight(line_h * lines + 28)
+        # Barre de défilement seulement si le texte dépasse vraiment 10 lignes : jamais pour 1 ou 2 lignes.
+        policy = Qt.ScrollBarAsNeeded if lines_all > 10 else Qt.ScrollBarAlwaysOff
+        if self.verticalScrollBarPolicy() != policy:
+            self.setVerticalScrollBarPolicy(policy)
+
+    def event(self, e) -> bool:
+        ok = super().event(e)
+        if e.type() in (QEvent.StyleChange, QEvent.FontChange, QEvent.Polish):
+            self._fit()           # la feuille de style change la police : on recalcule la hauteur
+        return ok
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._fit()               # la largeur change → les retours à la ligne changent
 
     def append_text(self, text: str) -> None:
         cur = self.toPlainText().rstrip()
@@ -345,6 +362,12 @@ class JimmyWindow(QMainWindow):
             for role, text in sessions.load_messages(self.bridge.workdir(), self.bridge.session_id)[-30:]:
                 self.add_message(role, text)
         self.listener.start()
+        # Une tâche de Claude laissée en route par le Jimmy précédent (fermeture, mise à jour, redémarrage) ?
+        self._job_timer = QTimer(self)
+        self._job_timer.timeout.connect(self._poll_job)
+        if self.bridge.recover_job():
+            self.add_system("Une tâche de Claude tournait quand Jimmy s'est fermé : je la suis, sa réponse s'affichera ici.")
+            self._job_timer.start(2500)
         # Premier lancement : le modèle vocal se télécharge, on montre l'avancement.
         self._dl_timer = QTimer(self)
         self._dl_timer.timeout.connect(self._show_download)
@@ -1046,6 +1069,20 @@ class JimmyWindow(QMainWindow):
         dlg.setStyleSheet(themed_style(self.cfg))
         dlg.exec()
 
+    def _poll_job(self) -> None:
+        """Suit la tâche de Claude laissée en route : affiche sa réponse dès qu'elle est terminée."""
+        st = self.bridge.poll_job()
+        if st is None or st[0] == "running":
+            if st is None:
+                self._job_timer.stop()
+            return
+        self._job_timer.stop()
+        if st[0] == "done":
+            self.add_system("La tâche lancée avant la fermeture de Jimmy est terminée :")
+            self.add_message("assistant", st[1])
+        else:
+            self.add_system("La tâche lancée avant la fermeture s'est arrêtée sans réponse.")
+
     def _show_download(self) -> None:
         if self.listener.state != "loading":
             return
@@ -1447,7 +1484,10 @@ class JimmyWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         if self.remote is not None:
             self.remote.shutdown()
-        self.bridge.cancel()
+        if self.bridge.busy_process():
+            self.bridge.detach()       # une tâche de Claude tourne : on la laisse finir, le prochain Jimmy l'affichera
+        else:
+            self.bridge.cancel()
         self.speaker.stop()
         self.listener.stop()
         super().closeEvent(event)

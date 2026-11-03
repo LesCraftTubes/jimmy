@@ -29,3 +29,7 @@ install_cle_ssh.ps1
 winfocus.py
 prompt_bloop.txt
 build_version_info.txt
+
+# tâches de Claude laissées en arrière-plan
+jobs/
+job.json

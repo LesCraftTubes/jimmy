@@ -22,6 +22,7 @@ from textutils import apply_corrections, collapse_repeats, extract_wake, is_hall
 SR = 16000
 BLOCK = 512
 BLOCK_S = BLOCK / SR
+REFINE_MAX_S = 45     # jusqu'à cette durée, une phrase reprise après une pause est retranscrite d'un bloc
 
 
 def _compute(device: str) -> str:
@@ -93,6 +94,8 @@ class Listener(QObject):
         self._model = None
         self._wake_model = None
         self._prefix = ""             # début de phrase entendu juste après « Jimmy »
+        self._cmd_audio = []          # son de ce début de phrase (pour tout retranscrire d'un bloc à la reprise)
+        self._cmd_refinable = True
         self._partial_gen = 0         # change à chaque fin de phrase : écarte les aperçus périmés
         self._partial_busy = False
         self._followup = False        # écoute de suite de conversation (sans mot d'éveil)
@@ -482,7 +485,13 @@ class Listener(QObject):
                         self.partial.emit(self._prefix)   # le texte validé reste affiché
 
     def _handle(self, audio, mode: str, cmd_started: float):
-        text = self._transcribe(audio, mode)
+        # Phrase reprise après une pause : on retranscrit TOUT ce qui a été dit depuis le début avec le modèle
+        # précis (le contexte corrige les mots mal compris) au lieu de recoller des morceaux déjà interprétés.
+        if mode == "command" and not self._prefix:
+            self._cmd_audio, self._cmd_refinable = [], True
+        refine = (mode == "command" and self._cmd_refinable and bool(self._cmd_audio)
+                  and sum(len(a) for a in self._cmd_audio) + len(audio) <= REFINE_MAX_S * SR)
+        text = self._transcribe(np.concatenate(self._cmd_audio + [audio]) if refine else audio, mode)
         if not text or is_hallucination(text):
             return mode, cmd_started
 
@@ -502,6 +511,7 @@ class Listener(QObject):
                 # On n'envoie pas tout de suite : si tu reprends ta phrase après une courte
                 # pause, la suite y est ajoutée (plus de coupure en plein milieu).
                 self._prefix = rest
+                self._cmd_audio, self._cmd_refinable = [audio], True
             self._set_state("listening")       # « Jimmy » seul : j'attends la suite
             return "command", time.time()
 
@@ -512,7 +522,15 @@ class Listener(QObject):
             return mode, time.time()
         # On garde la phrase et on continue d'écouter : si tu reprends après une pause,
         # la suite est ajoutée. L'envoi se fait après le délai de reprise (voir _loop).
-        self._prefix = (self._prefix + " " + command).strip()
+        if refine:
+            self._prefix = command                       # tout a été réécouté d'un bloc : ce texte remplace l'ancien
+            self._cmd_audio.append(audio)
+        else:
+            self._prefix = (self._prefix + " " + command).strip()
+            if self._cmd_refinable and sum(len(a) for a in self._cmd_audio) + len(audio) <= REFINE_MAX_S * SR:
+                self._cmd_audio.append(audio)
+            else:
+                self._cmd_refinable = False              # trop long (ou texte venu d'ailleurs) : on recolle les morceaux
         return "command", time.time()
 
     def _emit_command(self, text: str, followup: bool = False) -> None:

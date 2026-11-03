@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 1.0.9
+- Fermer ou redémarrer Jimmy n'arrête plus la tâche de Claude en cours : elle continue en arrière-plan, et au prochain démarrage Jimmy affiche sa réponse (valable aussi pendant une mise à jour). Seuls les accords d'outils demandés après la fermeture sont refusés.
+- Zone de saisie : plus de barre de défilement fantôme pour une seule ligne (la hauteur tenait compte de la mauvaise police) ; la barre n'apparaît qu'au-delà de 10 lignes.
+- Reconnaissance vocale : quand tu reprends ta phrase après une pause, tout ce que tu as dit est retranscrit d'un bloc avec le modèle précis (au lieu de recoller des morceaux), donc le texte se corrige avec le contexte.
+
 ## 1.0.8
 - Après une mise à jour, Jimmy se rouvre tout seul (avant il restait fermé).
 - Le bouton redémarrer (et le redémarrage après un changement de réglage vocal) rouvre vraiment Jimmy : le nouveau attend que l'ancien soit fermé au lieu de s'arrêter.
@@ -33,6 +38,7 @@
 
 ## 1.0.0
 - Première version publique : voix, connexion à Claude, appli mobile, changement de discussion téléphone ↔ PC.
+
 
 
 

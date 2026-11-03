@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from config import Config, app_dir, data_dir
@@ -20,6 +21,36 @@ from textutils import fold, parse_claude_output, steps_from_event
 
 class ClaudeError(Exception):
     pass
+
+
+def _purge_old_jobs(folder: Path, days: float = 3.0) -> None:
+    """Efface les vieux fichiers de sortie de Claude (les tâches terminées depuis plus de quelques jours)."""
+    limit = time.time() - days * 86400
+    try:
+        for f in folder.glob("*.*"):
+            if f.suffix in (".out", ".err") and f.stat().st_mtime < limit:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))      # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        return bool(k.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+    finally:
+        k.CloseHandle(h)
 
 
 # Une seule ligne, sans guillemets ni caractères spéciaux : elle est passée en argument,
@@ -144,6 +175,8 @@ class ClaudeBridge:
         self._injected = 0
         self._close_timer = None
         self._result_seen = False
+        self._detached = False   # Jimmy se ferme alors qu'une tâche tourne : on la laisse continuer
+        self._job_path = data_dir() / "job.json"
         self._load_state()
 
     # ------------------------------------------------------------------ état
@@ -365,20 +398,41 @@ class ClaudeBridge:
         self.pending_tools = []
         self.blocked_tools = []
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        # La sortie de Claude va dans un FICHIER (pas un tuyau) : si Jimmy se ferme ou redémarre en pleine tâche,
+        # Claude continue et finit d'écrire sa réponse ; le prochain Jimmy la retrouve (voir recover_job).
+        jobs = data_dir() / "jobs"
+        jobs.mkdir(parents=True, exist_ok=True)
+        _purge_old_jobs(jobs)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        out_path, err_path = jobs / f"{stamp}.out", jobs / f"{stamp}.err"
+        self._detached = False
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=self.workdir(),
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                creationflags=flags,
-            )
+            out_f, err_f = open(out_path, "wb"), open(err_path, "wb")
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=out_f,
+                    stderr=err_f,
+                    cwd=self.workdir(),
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=flags,
+                )
+            finally:
+                out_f.close()
+                err_f.close()
         except OSError as e:
             raise ClaudeError(f"Impossible de lancer Claude Code : {e}")
+        self._job_path = data_dir() / "job.json"
+        try:
+            self._job_path.write_text(json.dumps({
+                "pid": proc.pid, "out": str(out_path), "session_id": self.session_id,
+                "started": time.time(),
+            }), encoding="utf-8")
+        except OSError:
+            pass
 
         with self._lock:
             self._proc = proc
@@ -413,9 +467,6 @@ class ClaudeBridge:
 
         timer = _TimerHandle()
         _arm()
-        err_parts = []
-        err_thread = threading.Thread(target=lambda: err_parts.append(proc.stderr.read()), daemon=True)
-        err_thread.start()
         final, raw = None, []
         try:
             # Le message passe par l'entrée standard (JSON, une ligne) : aucun souci de guillemets ou d'accents.
@@ -424,7 +475,7 @@ class ClaudeBridge:
                 self._write_user(proc, text)
             except OSError:
                 pass
-            for line in proc.stdout:
+            for line in self._tail_lines(proc, out_path):
                 _arm()
                 line = line.strip()
                 if not line:
@@ -454,15 +505,25 @@ class ClaudeBridge:
                         self.on_step(step)
                 if evt.get("type") != "result":
                     self._cancel_close()   # de nouveaux événements : la tâche continue (message ajouté en cours de route)
-            proc.wait()
+            if not self._detached:
+                proc.wait()
         finally:
             timer.cancel()
             self._cancel_close()
-            err_thread.join(timeout=2)
             with self._lock:
                 self._proc = None
                 self._stdin = None
-        err = "".join(p or "" for p in err_parts)
+        if self._detached:
+            # Jimmy se ferme : la tâche continue sans lui (job.json reste pour que le prochain Jimmy la retrouve).
+            raise ClaudeError("Jimmy s'est fermé : la tâche continue en arrière-plan.")
+        try:
+            self._job_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            err = err_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            err = ""
         out = "\n".join(raw)
 
         if self._cancelled:
@@ -600,6 +661,87 @@ class ClaudeBridge:
             else:
                 proc.kill()
         except Exception:
+            pass
+
+    def busy_process(self) -> bool:
+        """Une tâche de Claude est en cours d'exécution."""
+        with self._lock:
+            return self._proc is not None and self._proc.poll() is None
+
+    def detach(self) -> None:
+        """Jimmy se ferme : la tâche en cours N'EST PAS arrêtée. Claude finit son travail tout seul
+        (sa réponse est écrite dans un fichier) et le prochain Jimmy l'affiche."""
+        self._detached = True
+        with self._lock:
+            proc = self._proc
+        if proc is not None:
+            self._close_stdin(proc)     # plus de nouveau message : Claude termine le tour en cours puis s'arrête
+
+    # ------------------------------------------------- tâche laissée en arrière-plan
+    def _tail_lines(self, proc, path):
+        """Lit le fichier de sortie de Claude au fur et à mesure, jusqu'à la fin du processus
+        (ou jusqu'à ce que Jimmy se détache : la tâche continue alors sans lui)."""
+        buf = b""
+        with open(path, "rb") as f:
+            while not self._detached:
+                chunk = f.read(65536)
+                if chunk:
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        yield line.decode("utf-8", "replace")
+                    continue
+                if proc.poll() is not None:
+                    chunk = f.read()          # dernière lecture après la fin du processus
+                    if not chunk:
+                        break
+                    buf += chunk
+                    continue
+                time.sleep(0.05)
+        if buf.strip():
+            yield buf.decode("utf-8", "replace")
+
+    def recover_job(self) -> bool:
+        """Au démarrage : une tâche lancée par un Jimmy précédent est-elle encore à suivre ?"""
+        try:
+            self._job = json.loads(self._job_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self._job = None
+        return bool(self._job)
+
+    def poll_job(self):
+        """None s'il n'y a rien à suivre ; ("running", None) ; ("done", texte) ; ("lost", None)."""
+        job = getattr(self, "_job", None)
+        if not job:
+            return None
+        final = None
+        try:
+            with open(job["out"], "rb") as f:
+                for raw in f.read().decode("utf-8", "replace").splitlines():
+                    if raw.startswith("{") and '"type":"result"' in raw.replace(" ", ""):
+                        try:
+                            final = json.loads(raw)
+                        except ValueError:
+                            pass
+        except OSError:
+            pass
+        if final is None:
+            if _pid_alive(job.get("pid", 0)):
+                return ("running", None)
+            self._clear_job()
+            return ("lost", None)
+        result, sid, is_error, _denied = parse_claude_output(json.dumps(final))
+        if sid:
+            self.session_id = sid
+            self._save_state()
+        self._clear_job()
+        return ("done", (result or "").strip() or "C'est fait.")
+
+    def _clear_job(self) -> None:
+        self._job = None
+        try:
+            self._job_path.unlink(missing_ok=True)
+        except OSError:
             pass
 
     def cancel(self) -> None:
