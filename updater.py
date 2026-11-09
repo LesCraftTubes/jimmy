@@ -83,7 +83,9 @@ def download(update: Update, progress=None) -> Path:
 def run_installer(path: Path) -> None:
     """Lance l'installateur en mode discret : il ferme Jimmy, met à jour, puis le relance."""
     flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
-    subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", "/NOCANCEL"],
+    log = Path(tempfile.gettempdir()) / "Jimmy-Setup-log.txt"      # journal de l'installation, pour comprendre un échec
+    subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", "/NOCANCEL",
+                      f"/LOG={log}"],
                      creationflags=flags, close_fds=True)
 
 

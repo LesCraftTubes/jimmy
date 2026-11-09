@@ -66,3 +66,17 @@ begin
   Result := IsUpgrade and ((PageID = wpWelcome) or (PageID = wpSelectDir) or (PageID = wpSelectProgramGroup)
                            or (PageID = wpSelectTasks) or (PageID = wpReady));
 end;
+
+// Des Jimmy.exe sans fenêtre peuvent rester (serveur d'autorisation ou mémoire lancé par une tâche de Claude) :
+// ils gardent les fichiers verrouillés et la mise à jour s'annulait. On les ferme juste avant la copie des fichiers
+// (Jimmy lui-même a déjà été fermé proprement avant, par CloseApplications).
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  rc: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Jimmy.exe', '', SW_HIDE, ewWaitUntilTerminated, rc);
+    Sleep(1500);
+  end;
+end;
