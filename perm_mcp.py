@@ -28,7 +28,7 @@ def _ask_jimmy(tool_name: str, tool_input) -> dict:
     try:
         port = int(os.environ["JIMMY_PERM_PORT"])
         with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
-            s.settimeout(600)   # le temps que l'utilisateur réponde
+            s.settimeout(float(os.environ.get("JIMMY_PERM_WAIT", "150")))   # un peu plus que le délai de la fenêtre
             req = {"token": os.environ.get("JIMMY_PERM_TOKEN", ""), "tool_name": tool_name, "input": tool_input}
             s.sendall((json.dumps(req) + "\n").encode("utf-8"))
             data = b""
@@ -39,7 +39,7 @@ def _ask_jimmy(tool_name: str, tool_input) -> dict:
                 data += chunk
         return json.loads(data.decode("utf-8"))
     except Exception as e:  # noqa: BLE001
-        return {"allow": False, "message": f"Jimmy n'a pas pu afficher la demande ({e})."}
+        return {"allow": False, "message": f"Pas de réponse de Jimmy à la demande d'autorisation ({e}). Ne réessaie pas en boucle : dis-le à l'utilisateur."}
 
 
 def _decision(args: dict) -> str:

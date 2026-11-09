@@ -222,8 +222,18 @@ class SettingsDialog(QDialog):
         form.addRow("Seuil d'économie", self.eco_threshold)
         self.eco_model = _combo(ECO_MODELS, cfg.get("eco_model", "sonnet"))
         form.addRow("Modèle d'économie", self.eco_model)
-        self.perm = _combo(PERMISSION_MODES, cfg.get("permission_mode", "acceptEdits"))
-        form.addRow("Permissions", self.perm)
+        self._perm_mode = cfg.get("permission_mode", "bypassPermissions")
+        self.autonomy = QCheckBox("Autonomie totale : Jimmy agit sans jamais demander (comme « bypass permissions »)")
+        self.autonomy.setChecked(self._perm_mode == "bypassPermissions")
+        form.addRow("Permissions", self.autonomy)
+        self.guard = QCheckBox("Garde-fous : refuser git push --force, --no-verify, DROP et TRUNCATE même en autonomie")
+        self.guard.setChecked(bool(cfg.get("guard_deny", True)))
+        form.addRow("", self.guard)
+        self.perm_timeout = QSpinBox()
+        self.perm_timeout.setRange(15, 900)
+        self.perm_timeout.setSuffix(" s")
+        self.perm_timeout.setValue(int(cfg.get("perm_timeout", 120)))
+        form.addRow("Délai si une demande reste sans réponse (hors autonomie)", self.perm_timeout)
         self.extra = QPlainTextEdit(str(cfg.get("extra_instructions", "")))
         self.extra.setPlaceholderText("Infos utiles pour Jimmy : ton serveur, ton site, tes habitudes…")
         self.extra.setFixedHeight(110)
@@ -242,6 +252,14 @@ class SettingsDialog(QDialog):
         self.ctx_th.setSuffix(" % de la limite")
         self.ctx_th.setValue(int(cfg.get("ctx_threshold", 70)))
         form.addRow("Seuil de reprise", self.ctx_th)
+        self.handoff_delete = QCheckBox("À la reprise de contexte, supprimer l'ancienne discussion (copie gardée dans la corbeille)")
+        self.handoff_delete.setChecked(bool(cfg.get("handoff_delete", True)))
+        form.addRow("", self.handoff_delete)
+        self.trash_days = QSpinBox()
+        self.trash_days.setRange(1, 90)
+        self.trash_days.setSuffix(" jours")
+        self.trash_days.setValue(int(cfg.get("trash_days", 7)))
+        form.addRow("Garder la corbeille", self.trash_days)
         self.ctx_limit = QSpinBox()
         self.ctx_limit.setRange(100_000, 1_000_000)
         self.ctx_limit.setSingleStep(50_000)
@@ -369,7 +387,10 @@ class SettingsDialog(QDialog):
             "eco_auto": self.eco.isChecked(),
             "eco_threshold": self.eco_threshold.value(),
             "eco_model": self.eco_model.currentData(),
-            "permission_mode": self.perm.currentData(),
+            "permission_mode": ("bypassPermissions" if self.autonomy.isChecked()
+                                else (self._perm_mode if self._perm_mode != "bypassPermissions" else "acceptEdits")),
+            "guard_deny": self.guard.isChecked(),
+            "perm_timeout": self.perm_timeout.value(),
             "extra_instructions": self.extra.toPlainText().strip(),
             "projects_text": self.projects.toPlainText().strip(),
             "accent": self.accent.currentData(),
@@ -387,6 +408,8 @@ class SettingsDialog(QDialog):
             "lean_mcp": self.lean_mcp.isChecked(),
             "ctx_auto": self.ctx_auto.isChecked(),
             "ctx_threshold": self.ctx_th.value(),
+            "handoff_delete": self.handoff_delete.isChecked(),
+            "trash_days": self.trash_days.value(),
             "context_limit": self.ctx_limit.value(),
             "start_maximized": self.maximized.isChecked(),
         }

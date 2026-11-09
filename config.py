@@ -77,13 +77,21 @@ DEFAULTS = {
     "show_steps": True,
     # "acceptEdits" : modifie les fichiers sans demander.
     # "bypassPermissions" : aucune demande de permission, quoi que Claude fasse.
-    "permission_mode": "acceptEdits",
+    "permission_mode": "bypassPermissions",
+    # Garde-fous techniques en mode autonomie : git push --force, --no-verify, DROP, TRUNCATE restent refusés.
+    "guard_deny": True,
+    # Demande d'autorisation (hors mode autonomie) : sans réponse après ce délai (secondes), l'action est refusée.
+    "perm_timeout": 120,
     # Outils que Claude Code peut utiliser sans demander (Bash = commandes, ssh, etc.).
     "allowed_tools": [
         "Read", "Edit", "Write", "Glob", "Grep", "Bash", "PowerShell", "WebFetch", "WebSearch",
         "NotebookEdit", "TodoWrite", "Task", "Agent", "Skill",
     ],
     "timeout_seconds": 1800,
+    # Reprise de contexte : l'ancienne discussion est supprimée (copie gardée trash_days jours dans la corbeille de Jimmy).
+    "handoff_delete": True,
+    "trash_days": 7,
+    "cleanup_reprises_done": False,
     # Texte libre ajouté aux consignes de Jimmy : infos sur ton serveur, ton site, ta base...
     "extra_instructions": "",
     # Carte de tes dossiers, une ligne par projet : « nom = chemin (à quoi il sert) ». Jimmy y va tout droit.

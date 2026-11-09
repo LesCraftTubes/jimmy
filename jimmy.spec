@@ -35,7 +35,7 @@ for pkg in ("faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", 
     hiddenimports += h
 
 datas += [("mobile", "mobile"), ("jimmy.ico", ".")]
-hiddenimports += ["PySide6.QtNetwork", "pyttsx3.drivers", "pyttsx3.drivers.sapi5"]
+hiddenimports += ["jimmy_mem", "sessions", "PySide6.QtNetwork", "pyttsx3.drivers", "pyttsx3.drivers.sapi5"]
 
 a = Analysis(
     ["main.py"],

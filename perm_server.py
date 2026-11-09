@@ -26,7 +26,7 @@ class _Handler(socketserver.StreamRequestHandler):
             return
         srv.answered += 1
         self._send({"allow": bool(allow), "remember": bool(remember),
-                    "message": "" if allow else "L'utilisateur a refusé cette action."})
+                    "message": "" if allow else (srv.last_note or "L'utilisateur a refusé cette action.")})
 
     def _send(self, obj) -> None:
         self.wfile.write((json.dumps(obj) + "\n").encode("utf-8"))
@@ -40,6 +40,7 @@ class PermServer(socketserver.ThreadingTCPServer):
         super().__init__(("127.0.0.1", 0), _Handler)
         self.ask = ask
         self.token = secrets.token_hex(16)
+        self.last_note = ""   # explication du dernier refus (ex. délai dépassé)
         self.answered = 0      # nombre de demandes traitées (remis à zéro à chaque tâche)
         threading.Thread(target=self.serve_forever, daemon=True).start()
 

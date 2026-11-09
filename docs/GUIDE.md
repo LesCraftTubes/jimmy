@@ -49,6 +49,31 @@ Tu peux aussi **changer de discussion** depuis le téléphone (bouton ☰) : ell
 - **Stop** (ou Échap) arrête la tâche.
 - La **conversation** se poursuit d'une demande à l'autre ; « Nouvelle discussion » repart de zéro.
 
+## Autonomie et permissions
+
+Dans **Réglages › Claude**, la case **Autonomie totale** fait travailler Jimmy sans qu'il te demande jamais rien (comme « bypass permissions » dans Claude Code). Il te dit ce qu'il a fait après coup. Même dans ce mode, `git push --force`, `--no-verify`, `DROP` et `TRUNCATE` restent refusés (case « Garde-fous »). Sans autonomie, une demande d'autorisation sans réponse est refusée au bout de quelques minutes, clairement, au lieu de bloquer Jimmy.
+
+Jimmy tourne avec `claude -p` : chaque message est une session courte. Il lance donc ses tests et commandes longues **au premier plan** et attend le résultat avant de répondre.
+
+## La mémoire de Jimmy
+
+Jimmy garde l'important (décisions, chemins, règles, état des projets) dans `memoire.db`, dans `%APPDATA%\Jimmy`. Il la consulte avant de chercher à l'aveugle, et note ce qui compte. Tu peux aussi l'utiliser toi-même :
+
+```
+python jimmy_mem.py search "mots"     # ou  Jimmy.exe --mem search "mots"
+python jimmy_mem.py add "sujet" "contenu court" --projet MonSite
+python jimmy_mem.py get 12
+python jimmy_mem.py list --projet MonSite
+python jimmy_mem.py forget 12
+```
+
+Jamais de mot de passe, de clé ni de jeton dedans : ils sont refusés.
+
+## Les discussions
+
+- Quand une discussion est presque pleine, Jimmy enregistre l'essentiel en mémoire et continue dans une nouvelle discussion **du même nom**. L'ancienne est supprimée ; une copie reste 7 jours dans le dossier `corbeille` de Jimmy (réglable, ou désactivable pour tout garder).
+- **Renommer** : double-clic sur une discussion, F2 ou clic droit › Renommer. Entrée valide, Échap annule. Ton nom n'est jamais changé tout seul.
+
 ## Mises à jour
 
 Jimmy cherche les nouvelles versions publiées sur GitHub (réglage `update_repo`) et te propose de les installer en un clic. Tes réglages et tes appareils jumelés sont dans `%APPDATA%\Jimmy` : ils sont conservés.

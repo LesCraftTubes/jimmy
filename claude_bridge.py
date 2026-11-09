@@ -84,10 +84,39 @@ SYSTEM_PROMPT = (
     "Quand la demande concerne des fichiers, du code, le site web ou le serveur, fais le travail toi-même "
     "avec tes outils, puis résume en une ou deux phrases ce que tu as trouvé ou modifié (noms de fichiers à l'appui). "
     "Pour un site : lis d'abord le code concerné, fais la modification minimale nécessaire, vérifie le résultat. "
-    "Avant toute action destructive ou irréversible (suppression de données, écrasement ou modification "
-    "de la base de données, rm -rf, DROP, déploiement risqué), demande une confirmation claire et attends la réponse. "
+    "Chaque message est une session courte : tout test, déploiement ou commande longue se lance au premier plan "
+    "(délai long, jusqu'à 10 minutes) et tu attends le résultat avant de répondre ; rien en arrière-plan, "
+    "et jamais de promesse de résultat « plus tard » ou « à la fin ». "
     "Si une information te manque, pose une seule question courte. "
 )
+# Ajouté seulement en mode autonomie (permission_mode = bypassPermissions).
+AUTONOMY_PROMPT = (
+    "Accord permanent de l'utilisateur : n'en demande jamais avant d'agir. Modifie, teste, déploie "
+    "(sauvegarde avant, vérification après), supprime tes fichiers de travail, installe les outils prévus, "
+    "puis dis ce que tu as fait. Jamais : saisir un mot de passe, jeton ou clé à sa place, créer un compte, "
+    "--force, --no-verify, DROP ou TRUNCATE. "
+)
+# Garde-fous techniques : refusés même en mode autonomie (les règles « deny » passent avant « bypass »).
+GUARD_DENY = [
+    "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git push * --force*)", "Bash(git push * -f)",
+    "Bash(*--no-verify*)", "Bash(*DROP TABLE*)", "Bash(*DROP DATABASE*)", "Bash(*TRUNCATE*)",
+    "PowerShell(git push --force*)", "PowerShell(git push -f*)", "PowerShell(*--no-verify*)",
+    "PowerShell(*DROP TABLE*)", "PowerShell(*DROP DATABASE*)", "PowerShell(*TRUNCATE*)",
+]
+
+
+def _mem_hint() -> str:
+    """Une seule phrase : la mémoire de Jimmy (jamais son contenu dans le prompt)."""
+    if getattr(sys, "frozen", False):
+        run = f"{sys.executable} --mem"          # Jimmy.exe sait aussi servir de commande mémoire
+    else:
+        script = app_dir() / "jimmy_mem.py"
+        if not script.exists():
+            return ""
+        run = f"{sys.executable} {script}"
+    return (f" Mémoire : avant de chercher à l'aveugle ou de redemander, fais {run} search mots ; "
+            f"quand une décision, un chemin, une règle ou un état de projet importe, fais {run} add "
+            "(jamais de secret dedans). ")
 
 
 def _music_hint() -> str:
@@ -311,7 +340,9 @@ class ClaudeBridge:
 
     def _build_cmd(self, cli: str, resume: bool) -> list:
         style = LONG_STYLE if self.cfg.get("long_mode") else SHORT_STYLE
-        system = IDENTITY + style + SPEECH_RULES + SYSTEM_PROMPT + _music_hint() + _volume_hint() + _discord_hint()
+        auto = self.cfg.get("permission_mode") == "bypassPermissions"
+        system = (IDENTITY + style + SPEECH_RULES + SYSTEM_PROMPT + (AUTONOMY_PROMPT if auto else "")
+                  + _mem_hint() + _music_hint() + _volume_hint() + _discord_hint())
         projects = [" ".join(l.split()) for l in str(self.cfg.get("projects_text", "")).splitlines() if l.strip()]
         if projects:
             system += (" Carte des dossiers de l'utilisateur (va directement au bon endroit, sans explorer "
@@ -341,7 +372,7 @@ class ClaudeBridge:
             "--output-format", "stream-json", "--verbose",
             # Entrée en flux : on peut envoyer d'autres messages PENDANT que Claude travaille (ajout de contexte).
             "--input-format", "stream-json",
-            "--permission-mode", self.cfg.get("permission_mode", "acceptEdits"),
+            "--permission-mode", self.cfg.get("permission_mode", "bypassPermissions"),
             "--append-system-prompt", system,
         ]
         model = self.effective_model()
@@ -356,7 +387,13 @@ class ClaudeBridge:
         tools += [t for t in self.session_tools if t not in tools]
         if tools:
             cmd += ["--allowedTools", ",".join(tools)]
-        cmd += self._perm_args()
+        if self.cfg.get("permission_mode") == "bypassPermissions":
+            # Mode autonomie : plus aucune demande, donc pas de serveur d'autorisation à charger (économise des tokens).
+            # Les garde-fous (--force, DROP...) restent refusés : les règles « deny » passent avant « bypass ».
+            if self.cfg.get("guard_deny", True):
+                cmd += ["--disallowedTools", ",".join(GUARD_DENY)]
+        else:
+            cmd += self._perm_args()
         if self._lean():
             cmd.append("--strict-mcp-config")      # seul le serveur d'autorisation de Jimmy est chargé
         return cmd
@@ -377,7 +414,8 @@ class ClaudeBridge:
                 command, args = sys.executable, [str(script)]
             conf = {"mcpServers": {"jimmyperm": {
                 "command": command, "args": args,
-                "env": {"JIMMY_PERM_PORT": str(self._perm_server.port), "JIMMY_PERM_TOKEN": self._perm_server.token},
+                "env": {"JIMMY_PERM_PORT": str(self._perm_server.port), "JIMMY_PERM_TOKEN": self._perm_server.token,
+                        "JIMMY_PERM_WAIT": str(int(self.cfg.get("perm_timeout", 120)) + 30)},
             }}}
             path = Path(tempfile.gettempdir()) / "jimmy_perm_mcp.json"
             path.write_text(json.dumps(conf), encoding="utf-8")

@@ -11,6 +11,12 @@ if "--perm-mcp" in sys.argv:
     sys.exit(0)
 
 
+if "--mem" in sys.argv:
+    # Mémoire de Jimmy en ligne de commande (Jimmy.exe --mem search mots) : sans Python installé.
+    import jimmy_mem
+    sys.exit(jimmy_mem.main([a for a in sys.argv[1:] if a != "--mem"]))
+
+
 if "--selftest" in sys.argv:
     # Diagnostic sans interface : écrit selftest.txt dans le dossier de données.
     from main_streams import fix_streams

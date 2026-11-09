@@ -7,6 +7,7 @@ import time
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
+    QInputDialog,
     QApplication,
     QTextEdit,
     QGraphicsOpacityEffect,
@@ -311,7 +312,9 @@ class JimmyWindow(QMainWindow):
         self._steps_this_turn = 0
         self._eco_on = False
         self._queued = []          # messages écrits pendant que Jimmy travaille
-        self._handoff_note = ""    # résumé à joindre au prochain message (reprise de contexte)
+        self._handoff_note = ""    # mini-message à joindre au prochain message (reprise de contexte)
+        self._pending_name = None  # (nom, manuel, ancien id) : le nom d'origine à donner à la discussion qui reprend
+        self._deferred = None      # discussion pleine rouverte : mémoire + suppression au prochain message
         self._long_retry = False
 
         self.bridge = ClaudeBridge(cfg)
@@ -358,6 +361,7 @@ class JimmyWindow(QMainWindow):
         self.remote = RemoteManager(cfg, self)
         self.remote.apply()
         self.refresh_sessions()
+        QTimer.singleShot(2500, self._session_housekeeping)
         if self.bridge.session_id:
             for role, text in sessions.load_messages(self.bridge.workdir(), self.bridge.session_id)[-30:]:
                 self.add_message(role, text)
@@ -433,6 +437,7 @@ class JimmyWindow(QMainWindow):
         sl.addWidget(sec)
         self.session_list = QListWidget()
         self.session_list.itemClicked.connect(self.on_session_clicked)
+        self.session_list.itemDoubleClicked.connect(self._rename_session)
         self.session_list.setWordWrap(True)
         self.session_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.session_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -656,6 +661,8 @@ class JimmyWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new)
         QShortcut(QKeySequence("Ctrl+M"), self, activated=self.btn_mute.toggle)
         QShortcut(QKeySequence("Delete"), self.session_list, activated=self._delete_selected_session)
+        QShortcut(QKeySequence("F2"), self.session_list,
+                  activated=lambda: self.session_list.currentItem() and self._rename_session(self.session_list.currentItem()))
         self._place_window()
 
     def show_animated(self) -> None:
@@ -685,10 +692,17 @@ class JimmyWindow(QMainWindow):
     # -------------------------------------------------------------- discussions
     def refresh_sessions(self) -> None:
         wd = self.bridge.workdir()
+        pn = self._pending_name
+        if pn and self.bridge.session_id and self.bridge.session_id != pn[2]:
+            # la discussion qui reprend garde EXACTEMENT le nom de l'ancienne
+            sessions.set_name(self.bridge.session_id, pn[0], manual=pn[1])
+            self._pending_name = None
         self.session_list.clear()
         full = sessions.full_ids()
         cache = []
-        for sid, title_, when in sessions.list_sessions(wd):
+        listed = sessions.list_sessions(wd)
+        sessions.ensure_names(listed)      # titre tiré de la première demande, enregistré (renommable, jamais écrasé)
+        for sid, title_, when in listed:
             is_full = sid in full
             cache.append({"id": sid, "title": title_, "when": when, "full": bool(is_full)})
             item = QListWidgetItem(f"{title_}\n{when}" + ("  ·  pleine" if is_full else ""))
@@ -722,17 +736,20 @@ class JimmyWindow(QMainWindow):
             return
         self.bridge.set_session(sid)
         was_full = sid in sessions.full_ids()
+        self._deferred = None
         if was_full:
-            self._handoff_note = sessions.recap(self.bridge.workdir(), sid)
-            self.bridge.reset()   # lecture seule : la suite ira dans une nouvelle discussion
+            # lecture seule : au prochain message, l'essentiel va en mémoire, l'ancienne est supprimée, et la suite
+            # repart dans une nouvelle discussion qui garde le même nom
+            self._deferred = (sid, sessions.display_name(self.bridge.workdir(), sid), sessions.is_manual(sid))
+            self.bridge.reset()
         self._clear_chat()
         msgs = sessions.load_messages(self.bridge.workdir(), sid)
         if len(msgs) > 60:
             self.add_system(f"{len(msgs) - 60} messages plus anciens masqués.")
         for role, text in msgs[-60:]:
             self.add_message(role, text)
-        self.add_system("Discussion pleine : tu peux la relire. Ton prochain message ira dans une nouvelle "
-                        "discussion, avec un résumé." if was_full
+        self.add_system("Discussion pleine : tu peux la relire. Ton prochain message continuera dans une nouvelle "
+                        "discussion du même nom (l'essentiel est gardé en mémoire)." if was_full
                         else "Discussion reprise : tu peux continuer ici ou dans Claude Code.")
         self._refresh_ctx()
         self._swap_anim()
@@ -750,6 +767,7 @@ class JimmyWindow(QMainWindow):
         menu = QMenu(self)
         act_open = menu.addAction("Ouvrir")
         act_cc = menu.addAction("Ouvrir dans Claude Code")
+        act_ren = menu.addAction("Renommer…")
         menu.addSeparator()
         act_del = menu.addAction("Supprimer la discussion")
         chosen = menu.exec(self.session_list.viewport().mapToGlobal(pos))
@@ -759,8 +777,31 @@ class JimmyWindow(QMainWindow):
             self.on_session_clicked(item)
             if self.bridge.session_id == item.data(Qt.UserRole):
                 self.on_open_cc()
+        elif chosen is act_ren:
+            self._rename_session(item)
         elif chosen is act_del:
             self._delete_session(item)
+
+    def _rename_session(self, item) -> None:
+        """Renommer à la main (double-clic, F2 ou clic droit) : Entrée valide, Échap annule. Nom enregistré pour de bon."""
+        sid = item.data(Qt.UserRole)
+        if not sid:
+            return
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Renommer la discussion")
+        dlg.setLabelText("Nouveau nom :")
+        dlg.setTextValue(sessions.display_name(self.bridge.workdir(), sid))
+        dlg.setOkButtonText("Renommer")
+        dlg.setCancelButtonText("Annuler")
+        dlg.setStyleSheet(STYLE)
+        dlg.resize(460, dlg.sizeHint().height())
+        if dlg.exec() != QInputDialog.Accepted:
+            return
+        name = " ".join(dlg.textValue().split())
+        if not name:
+            return
+        sessions.set_name(sid, name, manual=True)
+        self.refresh_sessions()
 
     def _delete_selected_session(self) -> None:
         item = self.session_list.currentItem()
@@ -851,18 +892,44 @@ class JimmyWindow(QMainWindow):
             f"À {th:.0f} %, Jimmy reprend le contexte dans une nouvelle discussion "
             "(l'ancienne reste lisible, en gris dans la liste).".replace(",", " "))
 
+    def _do_handoff(self, sid: str, name: str, manual: bool) -> dict:
+        """Mémoire d'abord, puis suppression de l'ancienne (copie en corbeille, sauf si désactivé dans les réglages)."""
+        res = sessions.handoff(self.bridge.workdir(), sid, name,
+                               delete=bool(self.cfg.get("handoff_delete", True)),
+                               days=int(self.cfg.get("trash_days", 7)))
+        self._handoff_note = res["message"]
+        self._pending_name = (name, manual, sid)
+        return res
+
     def _handoff(self, forced: bool = False) -> None:
-        """Discussion presque pleine : on repart dans une nouvelle avec un petit résumé, l'ancienne est grisée."""
+        """Discussion presque pleine : l'essentiel va en mémoire, l'ancienne est supprimée, la suite repart dans une
+        nouvelle discussion qui garde EXACTEMENT le même nom."""
         sid = self.bridge.session_id
         if not sid:
             return
-        self._handoff_note = sessions.recap(self.bridge.workdir(), sid)
-        sessions.mark_full(sid)
+        name = sessions.display_name(self.bridge.workdir(), sid)
+        self._do_handoff(sid, name, sessions.is_manual(sid))
         self.bridge.reset()
-        self.add_system("Discussion presque pleine : je reprends le contexte dans une nouvelle discussion."
-                        if not forced else "Discussion trop longue : je reprends ta demande dans une nouvelle discussion.")
+        self.add_system("Discussion presque pleine : je continue dans la même discussion (l'essentiel est gardé en mémoire)."
+                        if not forced else "Discussion trop longue : je reprends ta demande dans la même discussion.")
         self.refresh_sessions()
         self._refresh_ctx()
+
+    def _session_housekeeping(self) -> None:
+        """Au démarrage : purge de la corbeille, et (une seule fois) ménage des anciennes « Reprise de la discussion »."""
+        try:
+            sessions.purge_trash(int(self.cfg.get("trash_days", 7)))
+            if self.cfg.get("handoff_delete", True) and not self.cfg.get("cleanup_reprises_done"):
+                wd = self.bridge.workdir()
+                plan = sessions.plan_cleanup(wd, protect_ids=[self.bridge.session_id])
+                if plan["remove"] or plan["names"]:
+                    done = sessions.apply_cleanup(wd, plan, days=14)
+                    self.add_system(f"Ménage des discussions : {done['removed']} anciennes reprises fusionnées "
+                                    f"(copie gardée 14 jours dans la corbeille), {done['saved']} notes en mémoire.")
+                self.cfg.set("cleanup_reprises_done", True)
+            self.refresh_sessions()
+        except Exception as e:  # noqa: BLE001
+            self.add_system(f"Ménage des discussions impossible : {e}")
 
     def _chat_region(self) -> QRectF:
         tl = self.chat_frame.mapTo(self.centralWidget(), QPoint(0, 0))
@@ -1155,10 +1222,20 @@ class JimmyWindow(QMainWindow):
 
     # ------------------------------------------------------------ autorisations à l'écran
     def _ask_permission(self, tool: str, tool_input):
-        """Appelé depuis le thread de travail : affiche la question dans Jimmy et attend la réponse."""
-        req = {"tool": tool, "input": tool_input, "done": threading.Event(), "answer": (False, False)}
+        """Appelé depuis le thread de travail : affiche la question dans Jimmy et attend la réponse.
+
+        Jamais d'attente sans fin : sans réponse au bout de perm_timeout secondes, l'action est refusée
+        (et on le dit clairement à l'écran et à Claude)."""
+        delay = int(self.cfg.get("perm_timeout", 120))
+        req = {"tool": tool, "input": tool_input, "done": threading.Event(), "answer": (False, False),
+               "delay": delay, "expired": False}
         self.sig.perm.emit(req)
-        req["done"].wait(600)
+        if not req["done"].wait(delay + 15):      # filet de sécurité si la fenêtre ne répond pas du tout
+            req["expired"] = True
+        srv = getattr(self.bridge, "_perm_server", None)
+        if srv is not None:
+            srv.last_note = (f"Pas de réponse de l'utilisateur en {delay} s : action refusée. "
+                             "Ne réessaie pas en boucle, dis-lui que tu attends son accord." if req["expired"] else "")
         return req["answer"]
 
     def _show_permission(self, req) -> None:
@@ -1166,18 +1243,33 @@ class JimmyWindow(QMainWindow):
             what = describe_tool(req["tool"], req["input"])
             self.raise_()
             self.activateWindow()
+            QApplication.alert(self, 0)      # la barre des tâches clignote si Jimmy est en arrière-plan
+            self.speaker.beep(660, 120, volume=0.15)
             box = QMessageBox(self)
             box.setWindowTitle("Autorisation demandée")
-            box.setText("Jimmy veut faire ceci :")
+            box.setText(f"Jimmy veut faire ceci (refusé automatiquement sans réponse dans {req['delay']} s) :")
             box.setInformativeText(what)
             yes = box.addButton("Autoriser", QMessageBox.AcceptRole)
             always = box.addButton(f"Toujours ({req['tool']}, cette session)", QMessageBox.AcceptRole)
             box.addButton("Refuser", QMessageBox.RejectRole)
             box.setStyleSheet(STYLE)
+            expired = []
+
+            def _expire() -> None:
+                expired.append(True)
+                box.reject()
+
+            QTimer.singleShot(req["delay"] * 1000, _expire)
             box.exec()
             clicked = box.clickedButton()
-            req["answer"] = (clicked in (yes, always), clicked is always)
-            self.add_system(f"{'Autorisé' if clicked in (yes, always) else 'Refusé'} : {what}")
+            if expired:
+                req["expired"] = True
+                req["answer"] = (False, False)
+                self.add_system(f"Aucune réponse en {req['delay']} s : refusé ({what}). "
+                                "Réglages › Claude pour passer en mode autonomie.")
+            else:
+                req["answer"] = (clicked in (yes, always), clicked is always)
+                self.add_system(f"{'Autorisé' if clicked in (yes, always) else 'Refusé'} : {what}")
         finally:
             req["done"].set()
 
@@ -1244,6 +1336,11 @@ class JimmyWindow(QMainWindow):
         if followup and consent is None:
             # Phrase captée sans « Jimmy » juste après une réponse : peut-être pas pour lui.
             prompt = FOLLOWUP_NOTE + text
+        if self._deferred and consent is None:
+            old, nm, man = self._deferred
+            self._deferred = None
+            self._do_handoff(old, nm, man)
+            self.refresh_sessions()
         if self._handoff_note and consent is None:
             prompt = self._handoff_note + "\n\n" + prompt
             self._handoff_note = ""
@@ -1404,6 +1501,8 @@ class JimmyWindow(QMainWindow):
             return
         self.bridge.reset()
         self._handoff_note = ""
+        self._pending_name = None
+        self._deferred = None
         self._refresh_ctx()
         self._clear_chat()
         self.session_list.clearSelection()

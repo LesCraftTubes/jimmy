@@ -145,6 +145,56 @@ def run() -> Path:
         return f"phrase reconnue en {time.time() - t0:.0f}s : {heard[0]!r}"
 
     step("chaîne d'écoute complète (réglages d'usine, faux micro)", pipeline)
+    def memory_check():
+        """Mémoire de Jimmy : base SQLite avec recherche plein texte, sur un dossier jetable."""
+        import os
+        import jimmy_mem
+        tmp = tempfile.mkdtemp(prefix="jimmy_mem_")
+        os.environ["JIMMY_MEM_DIR"] = tmp
+        try:
+            nid = jimmy_mem.add_note("Test", "Le serveur de test écoute sur le port 8080", "Essai", "test", 2)
+            hits = jimmy_mem.search("serveur 8080")
+            if not hits or hits[0]["id"] != nid:
+                raise RuntimeError("la recherche plein texte ne retrouve pas la note")
+            try:
+                jimmy_mem.add_note("Secret", "mot de passe : abcdef123")
+                raise RuntimeError("un secret a été accepté")
+            except ValueError:
+                pass
+            if not jimmy_mem.forget(nid):
+                raise RuntimeError("suppression impossible")
+        finally:
+            os.environ.pop("JIMMY_MEM_DIR", None)
+        return "ajout, recherche (FTS5), refus des secrets, suppression"
+
+    step("mémoire (SQLite + FTS5)", memory_check)
+
+    def sessions_check():
+        """Noms de discussions : le mini-message de reprise garde exactement le nom d'origine."""
+        import sessions
+        msg = sessions.mini_message("Ma boutique", "Refaire la page boutique")
+        name, goal = sessions.resume_info(msg)
+        if name != "Ma boutique" or "boutique" not in (goal or ""):
+            raise RuntimeError(f"nom/but non retrouvés : {name!r} / {goal!r}")
+        return "reprise : nom conservé"
+
+    step("reprise de discussion (nom conservé)", sessions_check)
+
+    def permissions_check():
+        """Mode autonomie : garde-fous (--force, DROP...) présents dans la commande envoyée à Claude Code."""
+        from claude_bridge import ClaudeBridge, GUARD_DENY
+        from config import DEFAULTS, Config
+        b = ClaudeBridge.__new__(ClaudeBridge)
+        b.cfg = Config(dict(DEFAULTS), Path(tempfile.gettempdir()) / "jimmy_selftest_cfg.json")
+        b.session_id, b.perm_ask, b._perm_server = None, None, None
+        b.session_tools, b._no_effort, b._need_mcp, b.usage_pct = [], False, False, 0.0
+        cmd = b._build_cmd("claude", False)
+        mode = cmd[cmd.index("--permission-mode") + 1]
+        if mode == "bypassPermissions" and "--disallowedTools" not in cmd:
+            raise RuntimeError("mode autonomie sans garde-fous")
+        return f"mode {mode}, {len(GUARD_DENY)} garde-fous"
+
+    step("permissions (mode et garde-fous)", permissions_check)
     step("piper (voix locales)", lambda: __import__("piper") and "importé")
     step("pyttsx3", lambda: __import__("pyttsx3") and "importé")
     step("pygame", lambda: __import__("pygame") and "importé")

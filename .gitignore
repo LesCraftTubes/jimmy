@@ -33,3 +33,10 @@ build_version_info.txt
 # tâches de Claude laissées en arrière-plan
 jobs/
 job.json
+
+# noms des discussions, corbeille, mémoire : données propres à chaque utilisateur
+session_names.json
+corbeille/
+memoire.db*
+cloudflared.exe
+selftest.txt
