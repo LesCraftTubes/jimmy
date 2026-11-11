@@ -19,7 +19,7 @@ Tout passe par [Claude Code](https://code.claude.com) : ton abonnement Claude su
 
 ## Utilisation
 
-- **Parler / « Jimmy »** : après un court silence, la phrase part. **Stop** (ou Échap) annule la tâche ou coupe la voix.
+- **Parler / « Jimmy »** : après un court silence, la phrase part. **Stop** annule la tâche ou coupe la voix.
 - **Pendant qu'il travaille**, tu peux continuer à parler ou écrire : ta précision est **ajoutée à la tâche en cours**, Claude la prend en compte dès sa prochaine étape, sans tout recommencer. Si tu parles quand sa réponse arrive, il ne te coupe pas.
 - **Discussions** : celles de Claude Code sont reprises ; « Ouvrir dans Claude Code » continue la même conversation dans le terminal.
 - **Économie** : modèle de repli automatique près de la limite de session, plugins chargés seulement quand il faut, reprise de contexte automatique quand la discussion devient trop grosse.

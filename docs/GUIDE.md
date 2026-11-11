@@ -46,7 +46,7 @@ Tu peux aussi **changer de discussion** depuis le téléphone (bouton ☰) : ell
 ## Ce que Jimmy peut faire pendant qu'il travaille
 
 - Tu peux **continuer à parler ou écrire** : ta précision est ajoutée à la tâche en cours.
-- **Stop** (ou Échap) arrête la tâche.
+- **Stop** arrête la tâche.
 - La **conversation** se poursuit d'une demande à l'autre ; « Nouvelle discussion » repart de zéro.
 
 ## Autonomie et permissions

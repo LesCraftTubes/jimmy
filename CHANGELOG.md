@@ -1,5 +1,8 @@
 ﻿# Historique des versions
 
+## 1.1.2
+- **Raccourcis clavier retirés** : plus de Échap pour arrêter la tâche, ni de Ctrl+Espace, Ctrl+N ou Ctrl+M. Une touche pressée par mégarde n'annule donc plus rien : on arrête une tâche uniquement avec le bouton **Stop**. Restent seulement F2 (renommer) et Suppr (supprimer, avec confirmation) quand la liste des discussions est sélectionnée.
+
 ## 1.1.1
 - **Mise à jour réparée** : elle s'annulait (« annulation des modifications ») quand un `Jimmy.exe` sans fenêtre restait ouvert, par exemple le serveur d'autorisation ou la mémoire lancés par une tâche de Claude : il gardait les fichiers verrouillés. L'installateur ferme maintenant ces restes juste avant de copier les fichiers.
 - L'installation écrit un journal (`Jimmy-Setup-log.txt` dans le dossier temporaire) pour comprendre un éventuel échec.

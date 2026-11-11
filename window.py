@@ -640,12 +640,12 @@ class JimmyWindow(QMainWindow):
         self.btn_mute.set_icon("mic")
         self.btn_mute.setObjectName("mute")
         self.btn_mute.setCheckable(True)
-        self.btn_mute.setToolTip("Arrête de capter ta voix, sans perdre ce que tu étais en train de dire (Ctrl+M)")
+        self.btn_mute.setToolTip("Arrête de capter ta voix, sans perdre ce que tu étais en train de dire")
         self.btn_mute.toggled.connect(self.on_mute)
         self.btn_stop = GlowButton("Stop", "#fbbf24")
         self.btn_stop.set_icon("stop")
         self.btn_stop.setObjectName("stop")
-        self.btn_stop.setToolTip("Annule la tâche ou coupe la voix (Échap)")
+        self.btn_stop.setToolTip("Annule la tâche ou coupe la voix")
         self.btn_stop.clicked.connect(self.on_stop)
         row.addWidget(self.input, 1)
         for b in (self.btn_send, self.btn_talk, self.btn_mute, self.btn_stop):
@@ -656,10 +656,6 @@ class JimmyWindow(QMainWindow):
         outer.addWidget(main, 1)
         self.sweep = SweepOverlay(root)     # glitchs par-dessus toute la fenêtre
 
-        QShortcut(QKeySequence("Escape"), self, activated=self.on_stop)
-        QShortcut(QKeySequence("Ctrl+Space"), self, activated=self.on_talk)
-        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new)
-        QShortcut(QKeySequence("Ctrl+M"), self, activated=self.btn_mute.toggle)
         QShortcut(QKeySequence("Delete"), self.session_list, activated=self._delete_selected_session)
         QShortcut(QKeySequence("F2"), self.session_list,
                   activated=lambda: self.session_list.currentItem() and self._rename_session(self.session_list.currentItem()))
