@@ -40,3 +40,11 @@ corbeille/
 memoire.db*
 cloudflared.exe
 selftest.txt
+
+# IA locale : packs de connaissances et mémoire apprise = privés, jamais publiés
+packs/
+private/
+brouillons/
+memoire_ia.db*
+*.npy
+chunks.json

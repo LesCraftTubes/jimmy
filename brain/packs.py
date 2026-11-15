@@ -3,7 +3,7 @@
 Un pack est un dossier dans le dossier de données de l'utilisateur (%APPDATA%\\Jimmy\\packs\\<nom>), JAMAIS dans le
 programme ni dans le dépôt public :
 
-    pack.json     {"name", "title", "description", "always": ["docs/regles.md"], "keywords": ["skript", ...]}
+    pack.json     {"name", "title", "description", "always": ["docs/regles.md"], "keywords": ["mon-projet", ...]}
     docs/*.md     guides ; ceux listés dans "always" sont donnés au modèle à chaque demande qui concerne le pack
     index/        chunks.json + emb.npy : morceaux de fichiers retrouvés par le sens (facultatif)
     tools.py      def register(registry, pack): ajoute des outils (facultatif)

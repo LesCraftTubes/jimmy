@@ -69,6 +69,9 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._audio_tab(), "Audio")
         tabs.addTab(self._listen_tab(), "Écoute")
         tabs.addTab(self._claude_tab(), "Claude")
+        from brain.settings_tab import LocalTab
+        self.local_tab = LocalTab(cfg)
+        tabs.addTab(self.local_tab, "IA locale")
         tabs.addTab(self._window_tab(), "Fenêtre")
         tabs.addTab(self._look_tab(), "Apparence")
         lay.addWidget(tabs)
@@ -371,6 +374,7 @@ class SettingsDialog(QDialog):
     def values(self) -> dict:
         words = [w.strip() for w in self.wake.text().split(",") if w.strip()] or ["jimmy"]
         return {
+            **self.local_tab.values(),
             "mic_device": self.mic.currentData(),
             "speaker_device": self.out.currentData(),
             "mic_sensitivity": self.sens.value() / 10,

@@ -1657,6 +1657,9 @@ class JimmyWindow(QMainWindow):
         self.listener.restart()
         self._refresh_placeholder()
         self._update_eco()
+        self.route_box.setVisible(bool(self.cfg.get("local_enabled", False)))
+        if self.local_agent:
+            self.local_agent.engine = None     # le modèle ou l'adresse ont pu changer : on se reconnecte
         if self.listener.state == "wake" and not self.busy:
             self.set_state("wake")
         if any(self.cfg.get(k) != v for k, v in old_restart.items()):
