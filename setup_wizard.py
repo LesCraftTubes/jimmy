@@ -265,7 +265,9 @@ class SetupWizard(QWizard):
         self.login = LoginPage(bridge)
         self.folder = FolderPage(cfg)
         self.voice = VoicePage(cfg)
-        for p in (self.intro, self.claude, self.login, self.folder, self.voice, DonePage()):
+        from brain.wizard_page import LocalAIPage
+        self.local = LocalAIPage(cfg)
+        for p in (self.intro, self.claude, self.login, self.folder, self.voice, self.local, DonePage()):
             self.addPage(p)
         self.setButtonText(QWizard.NextButton, "Suivant")
         self.setButtonText(QWizard.BackButton, "Précédent")
@@ -283,6 +285,7 @@ class SetupWizard(QWizard):
         self.cfg.data["whisper_model"] = self.voice.combo.currentData()
         if self.voice.mobile.isChecked():
             self.cfg.data["remote_enabled"] = True
+        self.local.apply()
         self.cfg.data["setup_done"] = True
         self.cfg.save()
         super().accept()
