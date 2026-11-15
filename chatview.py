@@ -116,9 +116,9 @@ class ChatView(QTextBrowser):
         )
         self._scroll()
 
-    def add_assistant(self, text: str) -> None:
+    def add_assistant(self, text: str, label: str = "JIMMY", color: str = "#e84df5") -> None:
         cur = self._end_cursor()
-        self._header(cur, "JIMMY", "#e84df5")
+        self._header(cur, label, color)
         self._insert_body(cur, text)
         self._scroll()
 

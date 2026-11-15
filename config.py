@@ -142,6 +142,13 @@ DEFAULTS = {
     "update_repo": "",
     "update_check": True,
     "setup_done": False,           # assistant de premier lancement terminé
+    # IA locale (facultative) : un moteur local (LM Studio, Bionic, Ollama) répond aux demandes simples,
+    # va sur Internet, lit les fichiers, et passe la main à Claude quand ça dépasse ses moyens.
+    "local_enabled": False,
+    "route": "claude",             # qui répond : claude, local, auto (l'IA locale décide, Claude en renfort)
+    "local_url": "",               # adresse du moteur (vide = détection automatique sur ce PC)
+    "local_model": "",             # modèle de discussion (vide = celui qui est chargé)
+    "packs_disabled": [],          # packs de connaissances désactivés
 }
 
 

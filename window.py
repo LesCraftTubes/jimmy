@@ -286,6 +286,7 @@ class _Signals(QObject):
     remote_stop = Signal()
     remote_new = Signal()
     remote_switch = Signal(str)
+    local_reply = Signal(str, str)   # réponse de l'IA locale, résumé à passer à Claude (ou vide)
 
 
 class JimmyWindow(QMainWindow):
@@ -305,6 +306,9 @@ class JimmyWindow(QMainWindow):
         self.sig.remote_stop.connect(self.on_stop)
         self.sig.remote_new.connect(self.on_new)
         self.sig.remote_switch.connect(self._on_remote_switch)
+        self.sig.local_reply.connect(self._on_local_reply)
+        self.local_agent = None     # IA locale, créée à la première demande
+        self._force_claude = False  # le prochain message part chez Claude quoi que dise le sélecteur
         self._remote_quiet = False  # pendant un réaffichage local (thème) : rien n'est renvoyé au téléphone
         self._sessions_cache = []   # discussions connues (envoyées au téléphone) : [{id, title, when, full}]
         self._remote_turn = False   # la demande en cours vient du téléphone : le PC ne lit pas la réponse à voix haute
@@ -647,6 +651,16 @@ class JimmyWindow(QMainWindow):
         self.btn_stop.setObjectName("stop")
         self.btn_stop.setToolTip("Annule la tâche ou coupe la voix")
         self.btn_stop.clicked.connect(self.on_stop)
+        self.route_box = QComboBox()
+        self.route_box.addItem("Claude", "claude")
+        self.route_box.addItem("IA locale", "local")
+        self.route_box.addItem("Auto", "auto")
+        self.route_box.setToolTip("Qui répond : Claude, l'IA locale (gratuite, sur ton PC), ou Auto (l'IA locale d'abord, "
+                                  "Claude en renfort). Astuce : « @local » ou « @claude » devant un message force le choix.")
+        self.route_box.setCurrentIndex(max(0, self.route_box.findData(str(self.cfg.get("route", "claude")))))
+        self.route_box.currentIndexChanged.connect(self._on_route_changed)
+        self.route_box.setVisible(bool(self.cfg.get("local_enabled", False)))
+        row.addWidget(self.route_box, 0, Qt.AlignBottom)
         row.addWidget(self.input, 1)
         for b in (self.btn_send, self.btn_talk, self.btn_mute, self.btn_stop):
             b.setMinimumWidth(118)
@@ -1166,6 +1180,8 @@ class JimmyWindow(QMainWindow):
         self._remote_emit({"type": "message", "role": role, "text": text})
         if role == "user":
             self.chat.add_user(text)
+        elif role == "local":
+            self.chat.add_assistant(text, "IA LOCALE", "#4ade80")
         else:
             self.chat.add_assistant(text)
 
@@ -1285,6 +1301,9 @@ class JimmyWindow(QMainWindow):
             if self.thinking:
                 self.listener.resume()   # le micro reste ouvert : tu peux continuer à ajouter des précisions
             return
+        if self._route_local(text):
+            self._submit_local(text, echo=echo)
+            return
         if self.bridge.blocked_tools:
             # Jimmy a proposé d'ouvrir Claude Code pour valider à l'écran.
             self.bridge.blocked_tools = []
@@ -1352,6 +1371,75 @@ class JimmyWindow(QMainWindow):
             self.sig.failure.emit(str(e))
         except Exception as e:  # noqa: BLE001
             self.sig.failure.emit(f"Erreur inattendue : {e}")
+
+    # ------------------------------------------------------------------ IA locale
+    def _route(self) -> str:
+        return str(self.cfg.get("route", "claude")) if self.cfg.get("local_enabled", False) else "claude"
+
+    def _route_local(self, text: str) -> bool:
+        """Ce message doit-il aller à l'IA locale ? « @local ... » / « @claude ... » forcent le choix."""
+        if self._force_claude:
+            self._force_claude = False
+            return False
+        if not self.cfg.get("local_enabled", False):
+            return False
+        if self.bridge.blocked_tools or self.bridge.pending_tools:
+            return False          # accords en attente : c'est Claude qui les a demandés
+        low = text.lower().lstrip()
+        if low.startswith("@claude"):
+            return False
+        if low.startswith(("@local", "@ia")):
+            return True
+        return self._route() in ("local", "auto")
+
+    def _submit_local(self, text: str, echo: bool = True) -> None:
+        self.busy = True
+        self.thinking = True
+        self.listener.pause()
+        if echo:
+            self.add_message("user", text)
+        self.set_state("thinking")
+        self._steps_this_turn = 0
+        parts = text.split(None, 1)
+        if parts and parts[0].lower() in ("@local", "@ia"):
+            text = parts[1] if len(parts) > 1 else ""
+        threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
+
+    def _work_local(self, text: str) -> None:
+        try:
+            if self.local_agent is None:
+                from brain.agent import LocalAgent
+                self.local_agent = LocalAgent(self.cfg, on_step=self.sig.step.emit)
+            if not self.local_agent.engine:
+                self.sig.step.emit("IA locale · démarrage du moteur")
+                why = self.local_agent.ready()
+                if why:
+                    self.sig.failure.emit("IA locale indisponible : " + why)
+                    return
+            reply, handoff = self.local_agent.run(text)
+            self.sig.local_reply.emit(reply, handoff)
+        except Exception as e:  # noqa: BLE001
+            self.sig.failure.emit(f"IA locale : {e}")
+
+    def _on_local_reply(self, text: str, handoff: str) -> None:
+        self.thinking = False
+        self._remote_emit({"type": "message", "role": "assistant", "text": text})
+        self.add_message("local", text)
+        self._last_reply = ""
+        if handoff:
+            if self._route() == "auto":
+                self.add_system("L'IA locale passe la main à Claude avec son résumé.")
+                self._force_claude = True
+                self._finish()
+                QTimer.singleShot(0, lambda: self.submit("L'IA locale te transmet ce problème :\n" + handoff, echo=False))
+                return
+            self.add_system("L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
+                            "ou écris « @claude » devant ta demande.")
+        self._finish()
+
+    def _on_route_changed(self, _i: int) -> None:
+        self.cfg.set("route", self.route_box.currentData())
+        self._refresh_placeholder()
 
     def _on_reply(self, text: str) -> None:
         if (self.listener.state == "listening" and not self.bridge.pending_tools and not self._queued
@@ -1496,6 +1584,8 @@ class JimmyWindow(QMainWindow):
             self.add_system("Attends la fin de la tâche en cours (ou appuie sur Stop).")
             return
         self.bridge.reset()
+        if self.local_agent:
+            self.local_agent.reset()
         self._handoff_note = ""
         self._pending_name = None
         self._deferred = None
