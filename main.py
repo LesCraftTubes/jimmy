@@ -39,7 +39,8 @@ fix_streams()
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
+from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox, QProgressDialog,
+                               QTextBrowser, QVBoxLayout)
 
 import updater
 from config import Config
@@ -82,19 +83,31 @@ class _UpdateReceiver(QObject):
 
 
 def _offer_update(win, update) -> None:
-    box = QMessageBox(win)
-    box.setWindowTitle("Mise à jour de Jimmy")
-    box.setText(f"Jimmy {update.version} est disponible (tu as la {__version__}).")
+    """Fenêtre de mise à jour : les nouveautés complètes, dans une zone qui défile (rien n'est coupé)."""
+    can = updater.can_self_update()
+    dlg0 = QDialog(win)
+    dlg0.setWindowTitle("Mise à jour de Jimmy")
+    dlg0.setMinimumSize(620, 460)
+    lay = QVBoxLayout(dlg0)
+    title = QLabel(f"<b>Jimmy {update.version}</b> est disponible (tu as la {__version__}).")
+    title.setWordWrap(True)
+    lay.addWidget(title)
     if update.notes:
-        box.setInformativeText(update.notes)
-    if not updater.can_self_update():
-        box.setStandardButtons(QMessageBox.Ok)
-        box.exec()
-        return
-    box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-    box.button(QMessageBox.Yes).setText("Installer maintenant")
-    box.button(QMessageBox.No).setText("Plus tard")
-    if box.exec() != QMessageBox.Yes:
+        view = QTextBrowser()
+        view.setOpenExternalLinks(True)
+        view.setMarkdown(update.notes)
+        lay.addWidget(view, 1)
+    buttons = QDialogButtonBox()
+    if can:
+        yes = buttons.addButton("Installer maintenant", QDialogButtonBox.AcceptRole)
+        no = buttons.addButton("Plus tard", QDialogButtonBox.RejectRole)
+        yes.clicked.connect(dlg0.accept)
+        no.clicked.connect(dlg0.reject)
+    else:
+        ok = buttons.addButton("OK", QDialogButtonBox.AcceptRole)
+        ok.clicked.connect(dlg0.accept)
+    lay.addWidget(buttons)
+    if dlg0.exec() != QDialog.Accepted or not can:
         return
     dlg = QProgressDialog("Téléchargement de la mise à jour…", None, 0, 100, win)
     dlg.setWindowTitle("Jimmy")

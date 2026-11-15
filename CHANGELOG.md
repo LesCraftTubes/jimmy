@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 2.0.1
+- **Mise à jour réparée** : elle s'annulait toute seule (« annulation des modifications ») parce que Bionic, ton IA locale, charge quelques fichiers du dossier de Jimmy et que Windows ne peut pas le fermer. L'installateur ne cherche plus que les `.exe` à fermer, met de côté les fichiers verrouillés au lieu d'abandonner, et ferme les `Jimmy.exe` sans fenêtre restés ouverts. Testé avec un faux Jimmy et des fichiers verrouillés.
+- **Notes de version complètes** : la fenêtre « Mise à jour » n'est plus coupée, elle affiche tout le texte avec une barre de défilement.
+
 ## 2.0.0
 - **Nouvelle interface** : toute la fenêtre est refaite comme une vraie page web moderne (HTML / CSS / JavaScript, affichée dans l'appli). Discussions avec recherche, aperçu de la voix en direct, blocs de code avec bouton « Copier », étapes de travail dépliables, thème sombre ou clair, jauges de quota et de contexte, menu Voix. Les réglages avancés restent dans la fenêtre Réglages. L'ancienne interface reste disponible (Réglages › Fenêtre › Interface) et prend le relais automatiquement si la nouvelle ne peut pas démarrer.
 - **Reconnaissance vocale bien plus précise** : nouveau modèle **large-v3-turbo** (choisi automatiquement sur un PC avec carte NVIDIA, d'après la mémoire graphique), son nettoyé avant la reconnaissance (les voix basses ou les micros de casque sans fil sont remontés), début de phrase mieux conservé (plus de premières syllabes perdues), filtre de parole qui évite les phrases inventées dans le silence, et un **vocabulaire personnel** (Réglages › Écoute) pour les noms et mots techniques mal compris.

@@ -57,7 +57,7 @@ def check(repo: str) -> Update | None:
     for a in data.get("assets", []):
         name = str(a.get("name", ""))
         if name.lower().endswith(".exe") and "setup" in name.lower():
-            return Update(tag, str(a.get("browser_download_url", "")), str(data.get("body", ""))[:600], int(a.get("size", 0)))
+            return Update(tag, str(a.get("browser_download_url", "")), str(data.get("body", ""))[:20000], int(a.get("size", 0)))
     return None
 
 
