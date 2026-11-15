@@ -1,6 +1,6 @@
-"""Version de Jimmy. AugmentÃ©e Ã  chaque publication (le script release.ps1 s'en charge)."""
+﻿"""Version de Jimmy. AugmentÃƒÂ©e ÃƒÂ  chaque publication (le script release.ps1 s'en charge)."""
 __version__ = "2.0.0"
 APP_NAME = "Jimmy"
-# DÃ©pÃ´t GitHub des versions publiÃ©es (Â« proprietaire/depot Â») : Ã  renseigner une fois le dÃ©pÃ´t crÃ©Ã©.
-# Les mises Ã  jour automatiques en dÃ©pendent ; un utilisateur peut le remplacer par le rÃ©glage update_repo.
+# DÃƒÂ©pÃƒÂ´t GitHub des versions publiÃƒÂ©es (Ã‚Â« proprietaire/depot Ã‚Â») : ÃƒÂ  renseigner une fois le dÃƒÂ©pÃƒÂ´t crÃƒÂ©ÃƒÂ©.
+# Les mises ÃƒÂ  jour automatiques en dÃƒÂ©pendent ; un utilisateur peut le remplacer par le rÃƒÂ©glage update_repo.
 UPDATE_REPO = "LesCraftTubes/jimmy"
