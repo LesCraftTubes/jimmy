@@ -74,6 +74,8 @@ class Registry:
         except Exception as e:  # noqa: BLE001
             out = f"Erreur de l'outil {name} : {e}"
         out = str(out if out is not None else "")
+        first = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+        ctx.step("Résultat", first[:110])      # l'utilisateur voit ce que l'outil a VRAIMENT renvoyé (le modèle peut se tromper en le résumant)
         return out if len(out) <= MAX_RESULT else out[:MAX_RESULT] + "\n… (résultat tronqué)"
 
 

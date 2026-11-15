@@ -30,19 +30,23 @@ _TEXT_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 def _parse_text_calls(content: str) -> list:
     """Appels d'outils écrits en texte : <tool_call>{...}</tool_call> ou un objet JSON {"name": ..., "arguments": ...}."""
-    found = _TEXT_CALL.findall(content or "")
-    if not found:
-        m = re.search(r'\{\s*"name"\s*:.*\}', content or "", re.S)
-        found = [m.group(0)] if m else []
-    calls = []
-    for raw in found:
+    content = content or ""
+    dec = json.JSONDecoder()
+    calls, i = [], 0
+    while True:
+        i = content.find("{", i)
+        if i < 0:
+            break
         try:
-            obj = json.loads(raw)
+            obj, end = dec.raw_decode(content[i:])
         except ValueError:
+            i += 1
             continue
-        if isinstance(obj, dict) and obj.get("name"):
-            args = obj.get("arguments") or obj.get("parameters") or {}
-            calls.append({"function": {"name": obj["name"], "arguments": args}})
+        if isinstance(obj, dict) and isinstance(obj.get("name"), str) and ("arguments" in obj or "parameters" in obj):
+            calls.append({"function": {"name": obj["name"], "arguments": obj.get("arguments") or obj.get("parameters") or {}}})
+            i += end
+        else:
+            i += 1
     return calls
 
 
