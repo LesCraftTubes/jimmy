@@ -1,5 +1,15 @@
 ﻿# Historique des versions
 
+## 2.0.0
+- **Nouvelle interface** : toute la fenêtre est refaite comme une vraie page web moderne (HTML / CSS / JavaScript, affichée dans l'appli). Discussions avec recherche, aperçu de la voix en direct, blocs de code avec bouton « Copier », étapes de travail dépliables, thème sombre ou clair, jauges de quota et de contexte, menu Voix. Les réglages avancés restent dans la fenêtre Réglages. L'ancienne interface reste disponible (Réglages › Fenêtre › Interface) et prend le relais automatiquement si la nouvelle ne peut pas démarrer.
+- **Reconnaissance vocale bien plus précise** : nouveau modèle **large-v3-turbo** (choisi automatiquement sur un PC avec carte NVIDIA, d'après la mémoire graphique), son nettoyé avant la reconnaissance (les voix basses ou les micros de casque sans fil sont remontés), début de phrase mieux conservé (plus de premières syllabes perdues), filtre de parole qui évite les phrases inventées dans le silence, et un **vocabulaire personnel** (Réglages › Écoute) pour les noms et mots techniques mal compris.
+- **Le bouton « J'écoute » ne ment plus** : il n'est vert que si du son arrive vraiment du micro. Si le micro ne transmet plus rien (casque sans fil endormi, pilote bloqué), Jimmy le rouvre tout seul, et le dit clairement s'il n'y arrive pas.
+- **Accélération carte graphique** pour la version installée : Réglages › Audio propose de télécharger les bibliothèques NVIDIA (≈ 1,3 Go, paquets officiels, vérifiés par empreinte) avec ton accord. Sans elles, ou en cas de problème, Jimmy bascule sans bruit sur le processeur.
+- **IA locale (facultative)** : une IA qui tourne sur ton PC (LM Studio, Bionic ou Ollama), gratuite et privée. Sélecteur **Claude / IA locale / Auto** à côté de la zone de texte (`@local` ou `@claude` devant un message forcent le choix). Elle va sur Internet, lit tes fichiers, utilise la mémoire de Jimmy, et passe la main à Claude avec un résumé quand ça dépasse ses moyens. L'assistant d'installation et Réglages › IA locale analysent ton PC, expliquent ce qui est requis et ne téléchargent rien sans toi.
+- **Packs de connaissances** : un dossier dans `%APPDATA%\Jimmy\packs` apprend à l'IA locale un projet précis (guides, index de fichiers, outils). Chacun fabrique les siens ; ils ne sont jamais publiés.
+- **Garde anti-fuites** avant chaque publication : aucune donnée privée (mémoire, packs, adresses, secrets) ne peut partir sur GitHub.
+- L'installateur est plus gros (≈ 100 Mo de plus) : il embarque le moteur d'affichage de la page web.
+
 ## 1.1.2
 - **Raccourcis clavier retirés** : plus de Échap pour arrêter la tâche, ni de Ctrl+Espace, Ctrl+N ou Ctrl+M. Une touche pressée par mégarde n'annule donc plus rien : on arrête une tâche uniquement avec le bouton **Stop**. Restent seulement F2 (renommer) et Suppr (supprimer, avec confirmation) quand la liste des discussions est sélectionnée.
 

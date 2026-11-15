@@ -31,7 +31,7 @@ MODEL_NAMES = {
     "opus": "Opus 5.5",
     "sonnet": "Sonnet 5.5",
     "haiku": "Haiku 5.5",
-    "fable": "Fable 5.1",
+    "fable": "Fable 5.2",
 }
 
 # Couleurs d'accent du thème : nom -> (couleur principale, couleur secondaire).
@@ -100,14 +100,15 @@ DEFAULTS = {
     "lean_mcp": False,
     # Voix et écoute
     "language": "fr",
-    "whisper_model": "small",      # tiny, base, small, medium (plus gros = plus précis, plus lent)
-    "whisper_device": "cpu",       # "cpu" ou "cuda" (carte NVIDIA) ou "auto"
+    "whisper_model": "auto",       # auto (Jimmy choisit selon le PC), tiny, base, small, medium, large-v3-turbo (le plus précis)
+    "whisper_device": "auto",      # auto (carte NVIDIA si possible, sinon processeur), cpu ou cuda
     "mic_device": None,            # nom du micro (None = micro par défaut) : bouton Réglages
     "speaker_device": None,        # nom de la sortie audio de la voix (None = par défaut)
     "mic_sensitivity": 1.0,        # >1 = capte les voix plus basses
     "continue_seconds": 1.5,       # temps pour reprendre ta phrase après une pause
     "continue_unfinished_seconds": 4.0,  # idem quand la phrase semble coupée
     "wake_words_enabled": True,    # écoute permanente du mot d'éveil
+    "vocab": "",                   # mots à mieux reconnaître (noms de projets, termes techniques), séparés par des virgules
     "wake_words": ["jimmy"],      # modifiable dans la fenêtre : ex. ["jimmy", "hey claude"]
     # Petit modèle rapide, utilisé seulement pour repérer le mot d'éveil (vide = whisper_model).
     "wake_whisper_model": "base",
@@ -142,6 +143,7 @@ DEFAULTS = {
     "update_repo": "",
     "update_check": True,
     "setup_done": False,           # assistant de premier lancement terminé
+    "ui": "web",                   # interface : web (page HTML/CSS moderne) ou classic (ancienne fenêtre)
     # IA locale (facultative) : un moteur local (LM Studio, Bionic, Ollama) répond aux demandes simples,
     # va sur Internet, lit les fichiers, et passe la main à Claude quand ça dépasse ses moyens.
     "local_enabled": False,

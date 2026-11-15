@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Jimmy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============================== barre latérale ============================== -->
+  <aside id="side">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="34" height="34"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent2)"/></linearGradient></defs>
+          <circle cx="24" cy="24" r="20" fill="none" stroke="url(#lg)" stroke-width="3.2"/><circle cx="24" cy="24" r="8" fill="url(#lg)"/></svg>
+      </div>
+      <div class="brand-text"><b>Jimmy</b><span id="version">version</span></div>
+      <button class="icon-btn" id="btnTheme" title="Thème clair / sombre" aria-label="Thème"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+    </div>
+
+    <button class="primary wide" id="btnNew"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle discussion</button>
+
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="searchSessions" placeholder="Rechercher une discussion" autocomplete="off"></div>
+    <div class="section">Discussions</div>
+    <nav id="sessions" aria-label="Discussions"></nav>
+
+    <div class="section" id="usageTitle">Abonnement</div>
+    <div class="usage" id="usage1"><div class="usage-row"><span>Session</span><span class="muted" id="usageText1">—</span></div><div class="bar"><i id="usageBar1"></i></div></div>
+    <div class="usage" id="usage2"><div class="usage-row"><span>Semaine</span><span class="muted" id="usageText2">—</span></div><div class="bar"><i id="usageBar2"></i></div></div>
+
+    <div class="side-actions">
+      <button class="ghost" id="btnCC"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Ouvrir dans Claude Code</button>
+      <button class="ghost" id="btnMobile"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Appli mobile</button>
+      <button class="ghost" id="btnFolder"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Dossier de travail</button>
+      <div class="folder" id="folderLbl"></div>
+      <button class="ghost" id="btnSettings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>
+    </div>
+  </aside>
+
+  <!-- ============================== zone principale ============================== -->
+  <main id="main">
+    <header id="top">
+      <div class="status-pill" id="statusPill" data-state="loading">
+        <canvas id="orb" width="88" height="88"></canvas>
+        <div class="status-text"><b id="stateName">Démarrage</b><span id="statusLbl">Chargement…</span></div>
+      </div>
+
+      <div class="top-right">
+        <div class="seg" id="routeSeg" hidden title="Qui répond : Claude, l'IA locale (gratuite, sur ton PC) ou Auto (l'IA locale d'abord, Claude en renfort)">
+          <button data-v="claude">Claude</button><button data-v="local">IA locale</button><button data-v="auto">Auto</button>
+        </div>
+        <label class="select" title="Modèle Claude : Haiku consomme le moins de quota, Opus le plus"><select id="selModel"></select></label>
+        <label class="select" title="Effort bas = réponses plus rapides et moins de tokens"><select id="selEffort"></select></label>
+        <div class="menu-wrap">
+          <button class="icon-btn" id="btnVoiceMenu" title="Voix et écoute"><svg viewBox="0 0 24 24"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4"/></svg></button>
+          <div class="menu" id="voiceMenu" hidden>
+            <div class="menu-title">Voix de Jimmy</div>
+            <div class="row"><select id="selVoice"></select><button class="icon-btn small" id="btnVoiceTest" title="Écouter un exemple"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button></div>
+            <div class="menu-title">Comportement</div>
+            <label class="switch"><input type="checkbox" data-k="voice_enabled"><span></span>Lire les réponses à voix haute</label>
+            <label class="switch"><input type="checkbox" data-k="wake_words_enabled"><span></span>Écoute permanente du mot d'éveil</label>
+            <label class="switch"><input type="checkbox" data-k="auto_relisten"><span></span>Réécouter après chaque réponse</label>
+            <label class="switch"><input type="checkbox" data-k="long_mode"><span></span>Réponses détaillées à l'écran</label>
+            <label class="switch"><input type="checkbox" data-k="dictation"><span></span>Dictée (ma voix s'écrit, j'envoie ensuite)</label>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div id="restartBanner" hidden>Un réglage demande un redémarrage. <button class="link" id="btnRestart">Redémarrer Jimmy</button></div>
+
+    <section id="chatWrap">
+      <div id="chat" aria-live="polite"></div>
+      <button id="toBottom" hidden title="Aller en bas"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div id="empty">
+        <svg viewBox="0 0 48 48" width="56" height="56"><circle cx="24" cy="24" r="20" fill="none" stroke="url(#lg)" stroke-width="2.5"/><circle cx="24" cy="24" r="7" fill="url(#lg)"/></svg>
+        <h2>Comment puis-je t'aider ?</h2>
+        <p>Écris ci-dessous, ou dis « <b id="wakeWord">Jimmy</b> » pour parler.</p>
+      </div>
+    </section>
+
+    <footer id="composerWrap">
+      <div class="ctx" title=""><span id="ctxLbl">Contexte 0 %</span><div class="bar slim"><i id="ctxBar"></i></div></div>
+      <div id="composer">
+        <div id="preview" hidden></div>
+        <textarea id="input" rows="1" placeholder="Écris ici…" spellcheck="true"></textarea>
+        <div class="composer-actions">
+          <button class="mic" id="btnTalk" title="Parler. Reclique pour valider ce que tu as dit.">
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="talkText">Parler</span>
+            <i class="level" id="micLevel"></i>
+          </button>
+          <button class="icon-btn" id="btnMute" title="Couper le micro sans perdre ce que tu étais en train de dire" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/></svg></button>
+          <button class="icon-btn" id="btnStop" title="Annule la tâche ou coupe la voix"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          <button class="primary send" id="btnSend" title="Envoyer (Entrée)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span>Envoyer</span></button>
+        </div>
+      </div>
+      <div class="hint" id="hint">Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne · <kbd>@local</kbd> / <kbd>@claude</kbd> pour choisir qui répond</div>
+    </footer>
+  </main>
+</div>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 # Jimmy : dépendances de base (CPU). Voir requirements-gpu.txt pour la reconnaissance vocale sur carte NVIDIA.
 PySide6>=6.6
+PySide6-WebEngine>=6.6
 numpy
 sounddevice
 faster-whisper>=1.0

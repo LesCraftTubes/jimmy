@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-EXPECTED_MB = {"tiny": 75, "base": 145, "small": 480, "medium": 1500, "large-v2": 3000, "large-v3": 3000}
+EXPECTED_MB = {"tiny": 75, "base": 145, "small": 480, "medium": 1500, "large-v2": 3000, "large-v3": 3000, "large-v3-turbo": 1600}
 
 
 def _hub() -> Path:

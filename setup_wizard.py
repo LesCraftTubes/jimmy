@@ -21,6 +21,8 @@ WHISPER_CHOICES = [
     ("Rapide : modèle « base » (environ 150 Mo, un peu moins précis)", "base"),
     ("Équilibré : modèle « small » (environ 500 Mo, recommandé)", "small"),
     ("Précis : modèle « medium » (environ 1,5 Go, plus lent sans carte graphique)", "medium"),
+    ("Très précis : modèle « large-v3-turbo » (environ 1,6 Go, pour carte graphique NVIDIA)", "large-v3-turbo"),
+    ("Automatique : Jimmy choisit selon ton PC (recommandé)", "auto"),
 ]
 
 

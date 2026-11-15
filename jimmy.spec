@@ -34,8 +34,11 @@ for pkg in ("faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", 
     binaries += b
     hiddenimports += h
 
-datas += [("mobile", "mobile"), ("jimmy.ico", ".")]
-hiddenimports += ["jimmy_mem", "sessions", "PySide6.QtNetwork", "pyttsx3.drivers", "pyttsx3.drivers.sapi5"]
+datas += [("mobile", "mobile"), ("webui", "webui"), ("jimmy.ico", ".")]
+hiddenimports += ["jimmy_mem", "sessions", "PySide6.QtNetwork", "pyttsx3.drivers", "pyttsx3.drivers.sapi5",
+                  "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore", "PySide6.QtWebChannel", "webwindow",
+                  "brain", "brain.agent", "brain.engine", "brain.tools", "brain.packs", "brain.hardware", "brain.web",
+                  "brain.settings_tab", "brain.wizard_page"]
 
 a = Analysis(
     ["main.py"],

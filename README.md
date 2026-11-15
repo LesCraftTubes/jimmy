@@ -24,6 +24,12 @@ Tout passe par [Claude Code](https://code.claude.com) : ton abonnement Claude su
 - **Discussions** : celles de Claude Code sont reprises ; « Ouvrir dans Claude Code » continue la même conversation dans le terminal.
 - **Économie** : modèle de repli automatique près de la limite de session, plugins chargés seulement quand il faut, reprise de contexte automatique quand la discussion devient trop grosse.
 
+## IA locale (facultative)
+
+En plus de Claude, Jimmy peut utiliser une IA qui tourne **sur ton propre PC** (gratuite, privée) : Réglages › IA locale, ou l'étape dédiée de l'assistant d'installation, qui analyse ton PC et t'explique ce qui est requis. Il faut un moteur local gratuit (LM Studio, Bionic ou Ollama) avec un modèle téléchargé ; Jimmy ne télécharge rien sans ton accord. Un sélecteur **Claude / IA locale / Auto** apparaît près de la zone de texte. L'IA locale va sur Internet, lit tes fichiers, se sert de la mémoire de Jimmy, et passe la main à Claude quand ça dépasse ses moyens.
+
+Pour lui apprendre un projet (ton serveur, ton site...), crée un **pack** dans `%APPDATA%\Jimmy\packs\<nom>` : `pack.json` (nom, mots-clés, guides à toujours donner), `docs/*.md`, et si besoin `tools.py` avec une fonction `register(registry, pack)` qui ajoute des outils. Les packs restent sur ton PC et ne sont jamais envoyés nulle part.
+
 ## Appli mobile
 
 Pilote Jimmy depuis ton téléphone, y compris à distance : **Appli mobile** dans la fenêtre de Jimmy → scanne le QR code. C'est une appli web installable (écran d'accueil), avec la voix (micro et lecture des réponses) et le même visuel que Jimmy. **Le PC doit rester allumé avec Jimmy ouvert.**

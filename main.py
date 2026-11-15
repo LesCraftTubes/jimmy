@@ -17,6 +17,12 @@ if "--mem" in sys.argv:
     sys.exit(jimmy_mem.main([a for a in sys.argv[1:] if a != "--mem"]))
 
 
+if "--webtest" in sys.argv:
+    # Vérifie que l'interface web démarre (utile pour tester une version compilée) : écrit webtest.txt dans le dossier de données.
+    import webwindow
+    sys.exit(webwindow.selftest())
+
+
 if "--selftest" in sys.argv:
     # Diagnostic sans interface : écrit selftest.txt dans le dossier de données.
     from main_streams import fix_streams
@@ -126,6 +132,22 @@ def _other_instance(wait: bool = False, patience: float = 20.0) -> bool:
         return True
 
 
+def _upgrade_voice(cfg) -> None:
+    """Version 2 : une seule fois, un PC avec carte NVIDIA passe au modèle vocal le plus précis (large-v3-turbo) au lieu d'un modèle
+    moyen sur le processeur. Les autres PC ne changent pas. Réversible dans Réglages › Audio."""
+    if cfg.get("voice_v2"):
+        return
+    cfg.set("voice_v2", True)
+    try:
+        from listener import auto_choice
+        model, device = auto_choice(cfg)
+    except Exception:  # noqa: BLE001
+        return
+    if device == "cuda" and model == "large-v3-turbo" and cfg.get("whisper_model") in ("tiny", "base", "small", "medium"):
+        cfg.set("whisper_model", model)
+        cfg.set("whisper_device", device)
+
+
 def main() -> None:
     restarting = "--restart" in sys.argv       # lancé par « redémarrer » : on attend la fermeture de l'ancien
     sys.argv = [a for a in sys.argv if a != "--restart"]
@@ -148,11 +170,24 @@ def main() -> None:
     server.listen(SOCKET_NAME)
 
     cfg = Config.load()
+    _upgrade_voice(cfg)
     import setup_wizard
     setup_wizard.run_if_needed(cfg)
 
     from window import JimmyWindow
-    win = JimmyWindow(cfg)
+    win = None
+    if cfg.get("ui", "web") != "classic" and "--classic" not in sys.argv:
+        # Interface web (HTML/CSS) : si elle ne peut pas démarrer, l'ancienne fenêtre prend le relais.
+        try:
+            import webwindow
+            if webwindow.available():
+                win = webwindow.WebJimmyWindow(cfg)
+        except Exception:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            win = None
+    if win is None:
+        win = JimmyWindow(cfg)
 
     def _wake() -> None:
         conn = server.nextPendingConnection()

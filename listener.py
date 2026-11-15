@@ -26,7 +26,55 @@ REFINE_MAX_S = 45     # jusqu'à cette durée, une phrase reprise après une pau
 
 
 def _compute(device: str) -> str:
-    return "int8" if device in ("cpu", "auto") else "float16"
+    return "int8" if device == "cpu" else "float16"
+
+
+def _cuda_ok() -> bool:
+    """Vrai seulement si la carte NVIDIA est là ET que les bibliothèques CUDA se chargent vraiment (sinon la reconnaissance
+    échouerait en plein usage : « cublas64_12.dll introuvable »)."""
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() <= 0:
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    _add_cuda_dlls()
+    if os.name != "nt":
+        return True
+    import ctypes
+    try:
+        ctypes.WinDLL("cublas64_12.dll")
+        ctypes.WinDLL("cudnn64_9.dll")
+        return True
+    except OSError:
+        return False
+
+
+def auto_choice(cfg) -> tuple:
+    """(modèle, matériel) conseillés pour ce PC quand les réglages disent « auto » : carte NVIDIA -> large-v3-turbo (précis ET rapide),
+    sinon processeur -> small."""
+    if _cuda_ok():
+        try:
+            from brain import hardware
+            if hardware.survey()["vram_gb"] >= 5.5:
+                return "large-v3-turbo", "cuda"
+        except Exception:  # noqa: BLE001
+            pass
+        return "medium", "cuda"
+    return "small", "cpu"
+
+
+def prep_audio(audio):
+    """Nettoie le son avant la reconnaissance : enlève le décalage continu et remonte les voix trop basses (micro de casque
+    sans fil, voix posée) jusqu'à un niveau où Whisper est le plus précis. Gain limité pour ne pas gonfler le bruit."""
+    a = np.asarray(audio, dtype=np.float32)
+    if a.size == 0:
+        return a
+    a = a - float(np.mean(a))
+    peak = float(np.max(np.abs(a)))
+    if 1e-4 < peak < 0.6:
+        a = a * min(8.0, 0.7 / peak)
+    return np.clip(a, -1.0, 1.0)
 
 
 def _own_model_dir(name: str) -> str:
@@ -57,6 +105,11 @@ def _heal_model_cache(name: str) -> None:
 
 def _add_cuda_dlls() -> None:
     """Rend visibles les bibliothèques CUDA installées par pip (nvidia-cublas-cu12, nvidia-cudnn-cu12)."""
+    try:
+        import gpupack
+        gpupack.register()       # bibliothèques téléchargées par Jimmy (version installée)
+    except Exception:  # noqa: BLE001
+        pass
     base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
     for d in glob.glob(os.path.join(base, "*", "bin")):
         try:
@@ -183,7 +236,7 @@ class Listener(QObject):
         try:
             model = self._wake_model or self._model
             segments, _ = model.transcribe(
-                audio,
+                prep_audio(audio),
                 language=self.cfg.get("language", "fr"),
                 beam_size=1,
                 temperature=(0.0, 0.2, 0.4),
@@ -238,6 +291,8 @@ class Listener(QObject):
         raise last
 
     def _load_model(self) -> None:
+        if self._model is not None:
+            return          # déjà chargé (relance du micro seulement)
         self._set_state("loading")
         self.status.emit(
             "Chargement de la reconnaissance vocale. Au tout premier lancement, le modèle se "
@@ -251,6 +306,19 @@ class Listener(QObject):
 
         device = self.cfg.get("whisper_device", "cpu")
         main_name = self.cfg.get("whisper_model", "small")
+        if main_name == "auto" or device == "auto":
+            auto_model, auto_dev = auto_choice(self.cfg)
+            if main_name == "auto":
+                main_name = auto_model
+            if device == "auto":
+                device = auto_dev
+            self.status.emit(f"Reconnaissance vocale : modèle « {main_name} » sur {'la carte graphique' if device == 'cuda' else 'le processeur'}.")
+        if device == "cuda" and not _cuda_ok():
+            self.status.emit("Carte graphique non utilisable (bibliothèques NVIDIA absentes) : reconnaissance sur le processeur. "
+                             "Réglages › Audio permet de télécharger l'accélération carte graphique.")
+            device = "cpu"
+            if main_name == "large-v3-turbo":
+                main_name = "medium"      # trop lent sur processeur
         try:
             self._model = self._open_model(main_name, device, _compute(device))
         except Exception as e:  # noqa: BLE001
@@ -276,7 +344,8 @@ class Listener(QObject):
 
     def retry(self) -> bool:
         """Relance le chargement du modèle vocal s'il a échoué (clic sur Parler). Renvoie True si relancé."""
-        if self._model is None and not (self._thread and self._thread.is_alive()):
+        if (self._model is None or getattr(self, "_wd_giveup", False)) and not (self._thread and self._thread.is_alive()):
+            self._wd_giveup = False
             self.start()
             return True
         return False
@@ -332,6 +401,8 @@ class Listener(QObject):
                 return
             while not self._q.empty():  # vide le son de l'ancien micro
                 self._q.get_nowait()
+            if getattr(self, "_wd_giveup", False):
+                return          # micro mort : on s'arrête là (un clic sur « Parler » relance, voir retry)
 
     def _loop(self) -> None:
         end_silence_cmd = float(self.cfg.get("silence_seconds", 1.2))
@@ -341,7 +412,7 @@ class Listener(QObject):
         grace_unfinished = float(self.cfg.get("continue_unfinished_seconds", 4.0))
         sens = max(0.3, float(self.cfg.get("mic_sensitivity", 1.0)))
         noise = 0.006
-        pre = deque(maxlen=10)
+        pre = deque(maxlen=20)      # ≈ 0,65 s gardées avant le début détecté : plus de premières syllabes perdues
         buf = []
         in_speech = False
         silence = 0.0
@@ -351,10 +422,26 @@ class Listener(QObject):
         last_partial = 0.0
 
         t_open, got_sound, warned = time.time(), False, False
+        last_block = time.time()
         while not self._stop.is_set() and not self._restart.is_set():
             try:
                 block = self._q.get(timeout=0.2)
+                last_block = time.time()
+                self._wd_fail = 0
             except queue.Empty:
+                if time.time() - last_block > 3.0 and not self._paused.is_set():
+                    # Plus aucun son depuis 3 s : le micro (ou son pilote, un casque sans fil endormi...) ne répond plus.
+                    self._wd_fail = getattr(self, "_wd_fail", 0) + 1
+                    if self._wd_fail <= 4:
+                        self.status.emit("Le micro ne transmet plus de son : je le rouvre.")
+                        self._restart.set()
+                    else:
+                        self.error.emit("Le micro ne répond plus. Vérifie qu'il est branché / allumé, ou choisis-en un autre dans Réglages › Audio, puis clique sur Parler.")
+                        self._set_state("idle")
+                        self._wd_fail = 0
+                        self._wd_giveup = True
+                        self._restart.set()
+                    last_block = time.time()
                 continue
             # Micro muet côté Windows (confidentialité, mauvais périphérique) : le flux ne contient que des zéros exacts.
             if not got_sound and float(np.max(np.abs(block))) > 0:
@@ -542,21 +629,57 @@ class Listener(QObject):
         self._followup, self._cmd_timeout = False, 10.0
         self.heard.emit(text)
 
+    def _fallback_cpu(self) -> bool:
+        """La carte graphique ne marche pas pour de vrai : on repasse sur le processeur (une seule fois)."""
+        if getattr(self, "_cpu_fallback_done", False):
+            return False
+        self._cpu_fallback_done = True
+        try:
+            self.status.emit("La carte graphique n'a pas pu transcrire : je passe sur le processeur.")
+            self._model = self._open_model("medium", "cpu", "int8")
+            self._wake_model = self._model
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _vocab(self) -> str:
+        """Mots à privilégier : mots d'éveil, vocabulaire de l'utilisateur (réglage « vocab », séparé par des virgules)."""
+        words = [str(w).strip() for w in (self.cfg.get("wake_words") or []) if str(w).strip()]
+        extra = self.cfg.get("vocab") or ""
+        words += [w.strip() for w in (extra if isinstance(extra, list) else str(extra).split(",")) if str(w).strip()]
+        seen, out = set(), []
+        for w in ["Jimmy", "Claude"] + words:
+            if w.lower() not in seen:
+                seen.add(w.lower())
+                out.append(w)
+        return ", ".join(out)[:240]
+
     def _transcribe(self, audio, mode: str) -> str:
         if mode == "command":
             model, prompt = self._model, self.cfg.get("command_prompt")
         else:
             model, prompt = self._wake_model, "Jimmy."
         try:
+            audio = prep_audio(audio)
+            cmd = mode == "command"
+            kw = {}
+            vocab = self._vocab()
+            if cmd and vocab:
+                kw["hotwords"] = vocab           # noms propres et mots techniques de l'utilisateur : mieux reconnus
+            if cmd:
+                kw.update(best_of=5, patience=1.2, vad_filter=True,
+                          vad_parameters=dict(threshold=0.4, min_silence_duration_ms=600, speech_pad_ms=350))
             segments, _ = model.transcribe(
                 audio,
                 language=self.cfg.get("language", "fr"),
-                beam_size=5 if mode == "command" else 1,   # plus précis pour la commande, rapide pour « Jimmy »
+                beam_size=5 if cmd else 1,               # plus précis pour la commande, rapide pour « Jimmy »
                 temperature=(0.0, 0.2, 0.4),             # réessaie plus « libre » si Whisper boucle
-                compression_ratio_threshold=2.2,
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,
+                no_speech_threshold=0.6,
                 condition_on_previous_text=False,
-                vad_filter=False,
                 initial_prompt=prompt or None,
+                **kw,
             )
             parts = []
             for s in segments:
@@ -565,5 +688,7 @@ class Listener(QObject):
                 parts.append(s.text.strip())
             return apply_corrections(collapse_repeats(" ".join(parts).strip()), self.cfg.get("corrections"))
         except Exception as e:  # noqa: BLE001
+            if any(k in str(e).lower() for k in ("cublas", "cudnn", "cuda")) and self._fallback_cpu():
+                return self._transcribe(audio, mode)
             self.error.emit(f"Erreur de transcription : {e}")
             return ""

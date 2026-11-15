@@ -48,3 +48,9 @@ brouillons/
 memoire_ia.db*
 *.npy
 chunks.json
+_dist_v2/
+_build_v2/
+webtest.txt
+cuda/
+*.dll
+_build_v2.log

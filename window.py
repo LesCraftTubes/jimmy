@@ -260,7 +260,7 @@ STATUS_TEXT = {
 }
 
 
-RESTART_KEYS = ("whisper_model", "whisper_device", "wake_whisper_model", "language")
+RESTART_KEYS = ("whisper_model", "whisper_device", "wake_whisper_model", "language", "ui")
 
 
 QUEUE_NOTE = (

@@ -38,7 +38,7 @@ PERMISSION_MODES = [
     ("Aucune demande (tout autorisé)", "bypassPermissions"),
     ("Demande à chaque modification", "default"),
 ]
-WHISPER_MODELS = ["tiny", "base", "small", "medium"]
+WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3-turbo"]
 
 
 def _hint(text: str) -> QLabel:
@@ -54,6 +54,10 @@ def _combo(items, current) -> QComboBox:
         box.addItem(label, value)
     box.setCurrentIndex(max(0, box.findData(current)))
     return box
+
+
+class _GpuSig(QObject):
+    text = Signal(str)
 
 
 class SettingsDialog(QDialog):
@@ -119,6 +123,7 @@ class SettingsDialog(QDialog):
         sens_row.addWidget(self.sens_lbl)
         form.addRow("Sensibilité du micro", sens_row)
 
+        self._gpu_row(form)
         self.silence = self._spin(cfg.get("silence_seconds", 1.2), 0.6, 4.0)
         self.silence.setToolTip("Silence qui marque la fin d'un morceau de phrase.")
         form.addRow("Fin de phrase (s)", self.silence)
@@ -175,6 +180,58 @@ class SettingsDialog(QDialog):
         box.setDetailedText(text)
         box.exec()
 
+    # ------------------------------------------------------------------ accélération carte graphique
+    def _gpu_row(self, form) -> None:
+        import shutil
+        if os.name != "nt" or not shutil.which("nvidia-smi"):
+            return                        # pas de carte NVIDIA : rien à proposer
+        import gpupack
+        self._gpu_sig = _GpuSig()
+        self._gpu_sig.text.connect(lambda t: self.gpu_lbl.setText(t))
+        row = QHBoxLayout()
+        ok = gpupack.installed() or self._cuda_system_ok()
+        self.gpu_lbl = QLabel("Installée : la reconnaissance peut tourner sur ta carte graphique." if ok else
+                              "Non installée : la reconnaissance tourne sur le processeur (plus lente, un peu moins précise).")
+        self.gpu_lbl.setWordWrap(True)
+        self.gpu_btn = QPushButton("Télécharger (≈ 1,3 Go)")
+        self.gpu_btn.setVisible(not ok)
+        self.gpu_btn.clicked.connect(self._gpu_download)
+        row.addWidget(self.gpu_lbl, 1)
+        row.addWidget(self.gpu_btn)
+        form.addRow("Carte graphique NVIDIA", row)
+
+    @staticmethod
+    def _cuda_system_ok() -> bool:
+        try:
+            import listener
+            return listener._cuda_ok()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _gpu_download(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Accélération carte graphique")
+        box.setText("Télécharger les bibliothèques NVIDIA (cuBLAS et cuDNN, environ 1,3 Go) ?")
+        box.setInformativeText("Source : les paquets officiels de NVIDIA sur PyPI, vérifiés par empreinte. Ils sont rangés dans "
+                               "le dossier de données de Jimmy. Avec eux, le modèle vocal le plus précis tourne en moins d'une seconde.")
+        yes = box.addButton("Télécharger", QMessageBox.AcceptRole)
+        box.addButton("Annuler", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not yes:
+            return
+        self.gpu_btn.setEnabled(False)
+
+        def work() -> None:
+            import gpupack
+            try:
+                gpupack.download(lambda t, p: self._gpu_sig.text.emit(f"{t}  ({p} %)"))
+                self._gpu_sig.text.emit("Installée. Choisis « auto » ou « large-v3-turbo » dans Précision de la reconnaissance, "
+                                        "puis redémarre Jimmy.")
+            except Exception as e:  # noqa: BLE001
+                self._gpu_sig.text.emit(f"Échec du téléchargement : {e}")
+                self.gpu_btn.setEnabled(True)
+        threading.Thread(target=work, daemon=True).start()
+
     def _listen_tab(self) -> QWidget:
         cfg = self.cfg
         page, lay, form = self._form_page()
@@ -182,6 +239,10 @@ class SettingsDialog(QDialog):
         self.wake = QLineEdit(", ".join(str(w) for w in words))
         self.wake.setPlaceholderText("jimmy, hey jimmy")
         form.addRow("Mot d'éveil", self.wake)
+        self.vocab = QLineEdit(str(cfg.get("vocab") or ""))
+        self.vocab.setPlaceholderText("mots que Jimmy comprend mal : noms de projets, termes techniques (séparés par des virgules)")
+        self.vocab.setToolTip("Ces mots sont donnés à la reconnaissance vocale : elle les reconnaît bien mieux (ex. Skript, ItemsAdder, Minecraft).")
+        form.addRow("Vocabulaire", self.vocab)
         self.followup = QSpinBox()
         self.followup.setRange(0, 20)
         self.followup.setSuffix(" s")
@@ -204,7 +265,7 @@ class SettingsDialog(QDialog):
         form.addRow("Précision de la reconnaissance", self.whisper)
         lay.addWidget(_hint(
             "La réécoute ne marche que si le bouton « Relance » est allumé. "
-            "Reconnaissance : tiny = rapide, medium = précis mais lent (appliqué au prochain lancement)."
+            "Reconnaissance : « auto » choisit le meilleur pour ce PC ; large-v3-turbo = le plus précis (carte NVIDIA conseillée, 1,6 Go) ; tiny = rapide mais approximatif (appliqué au prochain lancement)."
         ))
         lay.addStretch(1)
         return page
@@ -284,6 +345,9 @@ class SettingsDialog(QDialog):
         self.maximized = QCheckBox("Ouvrir Jimmy en grand au démarrage")
         self.maximized.setChecked(bool(self.cfg.get("start_maximized", True)))
         form.addRow("", self.maximized)
+        self.classic_ui = QCheckBox("Utiliser l'ancienne interface (sans page web, un peu plus légère) : redémarrage de Jimmy")
+        self.classic_ui.setChecked(self.cfg.get("ui", "web") == "classic")
+        form.addRow("Interface", self.classic_ui)
         lay.addStretch(1)
         return page
 
@@ -382,6 +446,7 @@ class SettingsDialog(QDialog):
             "continue_seconds": round(self.grace.value(), 1),
             "continue_unfinished_seconds": round(self.grace_unf.value(), 1),
             "wake_words": words,
+            "vocab": self.vocab.text().strip(),
             "followup_seconds": self.followup.value(),
             "question_listen_seconds": self.question.value(),
             "wake_beep": self.wake_beep.isChecked(),
@@ -416,4 +481,5 @@ class SettingsDialog(QDialog):
             "trash_days": self.trash_days.value(),
             "context_limit": self.ctx_limit.value(),
             "start_maximized": self.maximized.isChecked(),
+            "ui": "classic" if self.classic_ui.isChecked() else "web",
         }
