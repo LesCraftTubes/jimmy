@@ -26,6 +26,10 @@ BASE_PROMPT = (
     "qu'il pourrait contenir. Tu ne prétends jamais avoir fait ce que tu n'as pas fait. "
     "Si la tâche dépasse tes capacités (gros changement de code, serveur, base de données, plusieurs échecs), utilise "
     "IMMÉDIATEMENT l'outil passer_a_claude avec un résumé complet : Claude la fera. Mieux vaut passer la main que refuser ou bricoler. "
+    "Tu as UN NAVIGATEUR à toi : tu PEUX ouvrir un site ou une page locale (ouvrir_page), la lire (lire_page_ouverte), la contrôler (rapport_page), "
+    "défiler (defiler), cliquer et écrire dans un champ quand l'utilisateur le demande (cliquer, ecrire_dans), prendre des captures (capturer_page) et "
+    "regarder une image (analyser_image). L'utilisateur voit ton écran en direct dans le panneau de droite. Ne dis JAMAIS que tu ne peux pas ouvrir "
+    "une page, un site ou un fichier .html : fais-le avec ton navigateur. "
     "Quand un « FIL DE LA DISCUSSION » est donné, c'est ce qui s'est dit entre l'utilisateur et Jimmy : relis-le AVANT de répondre, "
     "car une demande courte comme « oui vas-y » ou « fais-le » s'y rapporte. Ne redemande jamais ce qu'il contient déjà. "
     "Tu ne signes JAMAIS « Jimmy » et tu n'écris jamais d'étiquette comme « [Jimmy a répondu] » : tu es Aurélie, l'IA locale. "
@@ -75,10 +79,57 @@ _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _MEM = re.compile(r"(souviens|mémoire|memoire|on avait (décidé|dit)|rappelle[- ]?moi|retiens|déjà fait)", re.I)
 
 
+# Voir un site, capturer, regarder une image : le navigateur et les outils d'image d'Aurélie (voir live_tools.py)
+_SHOT = re.compile(r"(capture|screenshot|\bscreen\b|aper[çc]u|montre[- ]moi (la |le |les |à quoi|a quoi)|[àa] quoi (ça|ca|il|elle) ressemble|"
+                   r"le rendu|fais(-moi)? un (screen|aper)|prends? (une )?photo)", re.I)
+_FULLPAGE = re.compile(r"(page (enti[èe]re|compl[èe]te)|toute la page|en entier|pleine page|full ?page)", re.I)
+_MOBILE = re.compile(r"(mobile|t[ée]l[ée]phone|smartphone|portable)", re.I)
+_TABLET = re.compile(r"tablette", re.I)
+_CHECK = re.compile(r"(contr[ôo]l|v[ée]rifi|rapport|teste|analyse la page|probl[èe]mes?|erreurs?|cass[ée]|d[ée]borde)", re.I)
+_IMG_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'<>|*?]+\.(?:png|jpe?g|bmp|gif|webp))", re.I)
+_HTML_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'<>|*?]+\.html?)", re.I)
+_LOOK_IMG = re.compile(r"(analys|regarde|d[ée]cris|lis |que (dit|montre)|qu'est[- ]ce|c'est quoi|image|photo|capture|screen)", re.I)
+_LAST_SHOT = re.compile(r"(derni[èe]re|derniere) (capture|image|screen)", re.I)
+_CLICK = re.compile(r"clique[rz]? (?:sur )?(?:le |la |les |l')?(?:bouton |lien |onglet |menu |champ )?[«\"']?(.+?)[»\"']?(?= (?:et |puis |,)|[.!?]|$)", re.I)
+_OPEN = re.compile(r"\b(ouvre|ouvrir|va sur|aller sur|visite|affiche|navigue)\b", re.I)
+_BAD_SHOT = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.[ée]cri|corrige (le|la|les|mon|ma)|modifie|ajoute|installe|publie|release)", re.I)
+
+
+def wants_shot(text: str) -> bool:
+    """Demande de capture / de rendu / d'analyse d'image que l'IA locale sait faire seule (sans toucher au code)."""
+    t = text or ""
+    return bool((_SHOT.search(t) or _IMG_PATH.search(t) or _LAST_SHOT.search(t)) and not _BAD_SHOT.search(t))
+
+
 def prefetch(user_text: str) -> list:
     """Outils à lancer AVANT que le modèle réponde, quand la demande les réclame sans ambiguïté.
     Les petits modèles oublient d'appeler leurs outils ; le code s'en charge, le modèle n'a plus qu'à lire le résultat."""
     calls = []
+    imgs, htmls = _IMG_PATH.findall(user_text), _HTML_PATH.findall(user_text)
+    if (imgs or _LAST_SHOT.search(user_text)) and _LOOK_IMG.search(user_text):
+        return [("analyser_image", {"chemin": imgs[0] if imgs else "", "question": re.sub(r"\s+", " ", user_text)[:200]})]
+    targets = _URL.findall(user_text) + htmls
+    click = _CLICK.search(user_text)
+    if click and click.group(1).strip():
+        # « ouvre la page puis clique sur X » : le code enchaîne ouvrir -> cliquer -> relire la page ; le modèle n'a qu'à raconter ce qui s'est passé
+        seq = [("ouvrir_page", {"adresse": targets[0]})] if targets else []
+        return seq + [("cliquer", {"cible": click.group(1).strip(" «»\"'")}), ("lire_page_ouverte", {})]
+    if targets and _OPEN.search(user_text) and not _SHOT.search(user_text) and not _BAD_SHOT.search(user_text):
+        return [("ouvrir_page", {"adresse": targets[0]})]
+    if _SHOT.search(user_text) and not _BAD_SHOT.search(user_text):
+        args = {"adresse": targets[0]} if targets else {}
+        if _FULLPAGE.search(user_text):
+            args["plein_ecran"] = "oui"
+        if _MOBILE.search(user_text):
+            args["largeur"] = "390"
+        elif _TABLET.search(user_text):
+            args["largeur"] = "820"
+        calls.append(("capturer_page", args))
+        if _CHECK.search(user_text):
+            calls.append(("rapport_page", {}))
+        return calls
+    if targets and _CHECK.search(user_text) and not _BAD_SHOT.search(user_text):
+        return [("ouvrir_page", {"adresse": targets[0]}), ("rapport_page", {})]
     for u in _URL.findall(user_text)[:2]:
         calls.append(("lire_page", {"adresse": u}))
     if not calls and _WEB.search(user_text):
@@ -91,7 +142,9 @@ def prefetch(user_text: str) -> list:
 CAPS_LOCAL = (
     "Moi, Aurélie, je suis l'IA locale de Jimmy : gratuite, sur ton PC, sans consommer ton abonnement. Je sais chercher sur Internet "
     "(navigateur invisible, vrais résultats), lire des pages, chercher des fichiers par nom ou dans leur contenu, lire et lister tes dossiers, "
-    "retrouver ce que Jimmy a mis en mémoire et, quand tu me le demandes, créer ou modifier un fichier (avec sauvegarde) ou lancer une commande. "
+    "retrouver ce que Jimmy a mis en mémoire, ouvrir un site dans mon navigateur et te le montrer en direct dans le panneau de droite, "
+    "prendre des captures (page, page entière, un élément, format mobile), contrôler une page (images cassées, débordements, erreurs), lire le texte d'une "
+    "image et, quand tu me le demandes, créer ou modifier un fichier (avec sauvegarde), cliquer sur une page ou lancer une commande. "
     "Je réponds aux demandes simples ; pour le code, le serveur, la base de données ou une longue recherche, je passe la main à Jimmy avec un "
     "message et ce que j'ai déjà fait. Dis « Hey Aurélie » pour m'appeler."
 )
@@ -114,6 +167,8 @@ _LOURD = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.
 
 def needs_claude(text: str) -> bool:
     """Demande clairement trop lourde pour un petit modèle (code, serveur, base de données...) : Claude directement, sans détour."""
+    if wants_shot(text) and len(text or "") <= 600:
+        return False          # capturer une page ou regarder une image : Aurélie le fait seule (« bouton », « couleur »... ne comptent pas ici)
     return len(text or "") > 600 or bool(_LOURD.search(text or ""))
 
 

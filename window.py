@@ -4,6 +4,7 @@ import re
 import sys
 import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
@@ -338,7 +339,7 @@ class JimmyWindow(QMainWindow):
         from local_server import LocalServer
         self._local_lock = threading.Lock()
         self._relay_msg = ""
-        self._lserver = LocalServer(self._delegate)          # Jimmy (Claude) peut demander un travail de lecture à l'IA locale
+        self._lserver = LocalServer(self._delegate, self._delegate_act)          # Jimmy (Claude) peut demander un travail de lecture à l'IA locale
         self.bridge.extra_env = self._lserver.env()
         self.bridge.on_step = self.sig.step.emit
         self.bridge.perm_ask = self._ask_permission
@@ -1650,6 +1651,67 @@ class JimmyWindow(QMainWindow):
         self._bump_local("delegated")
         return ans
 
+    def _delegate_act_inner(self, cmd: str, req: dict) -> str:
+        """Jimmy (Claude) demande à Aurélie de CAPTURER une page ou d'ANALYSER une image : travail gratuit pour l'abonnement.
+        La capture s'affiche dans la discussion et dans le panneau de droite ; Jimmy reçoit un rapport TEXTE (pas l'image)."""
+        from brain import live, live_tools, vision
+        try:
+            if cmd == "capture":
+                lb = live.instance
+                if lb is None:
+                    return "Le navigateur d'Aurélie n'est pas disponible dans cette fenêtre : fais ce travail toi-même."
+                url, full = str(req.get("url", "")).strip(), bool(req.get("full"))
+                try:
+                    width = int(str(req.get("width") or "0"))
+                except ValueError:
+                    width = 0
+                element, caption = str(req.get("element") or "").strip(), str(req.get("caption") or "").strip()
+                self._announce_handoff("jimmy", "local", "il lui demande une capture")
+                self.sig.dialog.emit("jimmy", "local", f"Capture de {url}" + (" (page entière)" if full else "")
+                                     + (f", largeur {width} px" if width else "") + (f", élément {element}" if element else ""))
+                if url:
+                    res = lb.open(url)
+                    if not res.get("ok"):
+                        ans = f"Impossible d'ouvrir la page : {res.get('error') or 'échec du chargement'}."
+                        self.sig.dialog.emit("local", "jimmy", ans)
+                        return ans
+                cap = lb.capture(full=full, selector=element, width=width, caption=caption or "Capture pour Jimmy", who="local")
+                if not cap.get("ok"):
+                    ans = f"Capture impossible : {cap.get('error')}."
+                    self.sig.dialog.emit("local", "jimmy", ans)
+                    return ans
+                rep = live_tools._fmt_report(lb.report())
+                try:
+                    seen = vision.ocr(cap["file"])
+                except Exception as e:  # noqa: BLE001
+                    seen = f"(lecture du texte indisponible : {e})"
+                ans = (f"Capture enregistrée : {cap['file']} ({cap['w']}×{cap['h']} px). L'utilisateur la voit déjà dans la discussion et dans "
+                       f"le panneau de droite.\n{rep}\nTexte lu dans l'image :\n{seen[:1500] or '(aucun)'}")
+                self.sig.dialog.emit("local", "jimmy", f"Capture faite ({cap['w']}×{cap['h']}). " + rep.splitlines()[-1][:220])
+            else:
+                path = str(req.get("path", "")).strip()
+                self._announce_handoff("jimmy", "local", "il lui demande de regarder une image")
+                self.sig.dialog.emit("jimmy", "local", f"Regarde cette image : {Path(path).name}" + (f" — {req.get('question')}" if req.get("question") else ""))
+                if live._SECRET.search(Path(path).name):
+                    return "REFUSÉ : ce fichier pourrait contenir un secret."
+                ans = vision.analyze(self.cfg, path, str(req.get("question") or ""))
+                self.sig.dialog.emit("local", "jimmy", "Analyse faite : " + " ".join(ans.split())[:260])
+        except Exception as e:  # noqa: BLE001
+            ans = f"Je n'ai pas réussi : {e}. Fais-le toi-même."
+        return ans
+
+    def _delegate_act(self, cmd: str, req: dict) -> str:
+        """Point d'entrée : quoi qu'il arrive (refus, erreur, succès), Aurélie est TOUJOURS rendue à Jimmy à la fin."""
+        if not self.cfg.get("local_enabled", False):
+            return "L'IA locale est désactivée : fais ce travail toi-même."
+        try:
+            ans = self._delegate_act_inner(cmd, req)
+        except Exception as e:  # noqa: BLE001
+            ans = f"Je n'ai pas réussi : {e}. Fais-le toi-même."
+        self._announce_handoff("local", "jimmy", "elle lui rend son rapport")
+        self._bump_local("delegated")
+        return ans
+
     def _bump_local(self, key: str) -> None:
         st = dict(self.cfg.get("local_stats") or {})
         st[key] = int(st.get(key, 0)) + 1
@@ -1940,6 +2002,8 @@ class JimmyWindow(QMainWindow):
             QTimer.singleShot(1200, self.restart_app)
 
     def closeEvent(self, event) -> None:
+        if getattr(self, "_live", None) is not None:
+            self._live.shutdown()
         if self.remote is not None:
             self.remote.shutdown()
         if self.bridge.busy_process():

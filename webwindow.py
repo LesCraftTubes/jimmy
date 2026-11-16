@@ -107,6 +107,54 @@ class Bridge(QObject):
             self.win.cfg.set("accent", name)
             self._later(lambda: (self.win._apply_look(), self.win._apply_psychosis()))
 
+    # ---- panneau « Écran en direct » : le PC d'Aurélie
+    def _live_thread(self, fn) -> None:
+        threading.Thread(target=fn, daemon=True).start()
+
+    @Slot(str)
+    def liveOpen(self, url: str) -> None:
+        lb = self.win._live
+        self.win._actor = "user"
+
+        def work() -> None:
+            res = lb.open(url)
+            if not res.get("ok"):
+                self.win.jsb.emit({"t": "toast", "text": "Page non ouverte : " + str(res.get("error") or "échec du chargement"), "err": True})
+        self._live_thread(work)
+
+    @Slot()
+    def liveCapture(self) -> None:
+        lb = self.win._live
+
+        def work() -> None:
+            res = lb.capture(caption="Capture faite par toi", who="user")
+            if not res.get("ok"):
+                self.win.jsb.emit({"t": "toast", "text": "Capture impossible : " + str(res.get("error")), "err": True})
+        self._live_thread(work)
+
+    @Slot()
+    def liveGallery(self) -> None:
+        self.win._push_gallery()
+
+    @Slot(str)
+    def liveAttach(self, file: str) -> None:
+        """Joint une capture au prochain message : Jimmy pourra la regarder si tu le lui demandes."""
+        from brain import live
+        if any(r.get("file") == file for r in live.list_captures(300)):
+            self._later(lambda: self.win.attach_paths([file]))
+
+    @Slot(str)
+    def liveShow(self, file: str) -> None:
+        from brain import live
+        for r in live.list_captures(300):
+            if r.get("file") == file:
+                self.win._on_live_image(file, r.get("caption", ""), r.get("who", "local"))
+                return
+
+    @Slot()
+    def liveClose(self) -> None:
+        self._live_thread(self.win._live.close_page)
+
     @Slot(str)
     def setLocalColor(self, color: str) -> None:
         if re.fullmatch(r"#[0-9a-fA-F]{6}", color or ""):
@@ -599,6 +647,20 @@ class WebJimmyWindow(W.JimmyWindow):
         self._hsearch = HeadlessSearch()
         _web.browser_search = self._hsearch.search      # l'IA locale cherche sur Internet par là, sans ouvrir ton navigateur
 
+        # Le « PC » d'Aurélie : navigateur intégré qu'elle pilote ; les images en direct vont au panneau de droite (jamais à Claude)
+        from brain import live as _live
+        self._live = _live.LiveBrowser(self)
+        _live.instance = self._live
+        self._live.on_frame = lambda d: self.jsb.emit({"t": "live_frame", **d})
+        self._live.on_state = lambda d: self.jsb.emit({"t": "live_state", **d})
+        self._live.on_click = lambda d: self.jsb.emit({"t": "live_click", **d})
+        self._live.on_action = lambda text: self.jsb.emit({"t": "live_action", "text": text, "who": getattr(self, "_actor", "idle")})
+        self._live.on_image = self._on_live_image
+        try:
+            _live.purge_captures(int(self.cfg.get("captures_days", 14)))
+        except Exception:  # noqa: BLE001
+            pass
+
         view = QWebEngineView(self)
         page = _Page(view)
         page.on_file = lambda path: self.attach_paths([path])
@@ -650,6 +712,20 @@ class WebJimmyWindow(W.JimmyWindow):
             "accents": [[n, a, b] for n, (a, b) in ACCENTS.items()], "accent_name": cfg.get("accent"),
             "local_color": self._local_color(), "local_name": self._local_name(),
         }})
+
+    def _on_live_image(self, path: str, caption: str, who: str = "local") -> None:
+        """Une capture est prête : elle s'affiche dans la discussion et rejoint la galerie du panneau (appelable depuis n'importe quel fil)."""
+        from PySide6.QtCore import QUrl as _QUrl
+        self.jsb.emit({"t": "image", "src": _QUrl.fromLocalFile(path).toString(), "file": path, "caption": caption, "who": who,
+                       "name": self._local_name()})
+        self._push_gallery()
+
+    def _push_gallery(self) -> None:
+        from PySide6.QtCore import QUrl as _QUrl
+        from brain import live
+        self.jsb.emit({"t": "gallery", "items": [{"file": r["file"], "src": _QUrl.fromLocalFile(r["file"]).toString(), "caption": r.get("caption", ""),
+                                                  "ts": r.get("ts", ""), "who": r.get("who", "local"), "url": r.get("url", "")}
+                                                 for r in live.list_captures(48)]})
 
     # ---- qui travaille : Jimmy ou l'IA locale (affiché en haut de la fenêtre, avec les passages de l'un à l'autre)
     def _set_actor(self, who: str, why: str = "") -> None:

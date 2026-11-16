@@ -226,6 +226,7 @@ function refreshDuo() {
   nm.textContent = S.actor === "local" && S.state === "thinking" ? S.localName + " travaille"
     : S.actor === "local" && S.state === "speaking" ? S.localName + " répond" : (STATE_NAMES[S.state] || S.state);
   document.documentElement.dataset.actor = S.actor; $("#statusPill").dataset.actor = S.actor;
+  try { refreshLive(); } catch (e) {}
 }
 let linkTimer = 0;
 function showHandoff(e) {
@@ -389,6 +390,88 @@ function renderThemeMenu() {
 $("#btnTheme").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = t; try { localStorage.setItem("jimmy-theme", t); } catch (e) {} };
 try { const t = localStorage.getItem("jimmy-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
+/* ------------------------------------------------------------------ panneau de droite : le PC d'Aurélie, en direct */
+const L = { open: false, tab: "screen", closedByUser: false, frameAt: 0, feedN: 0, w: 460, hasFrame: false, cur: null, galInit: false };
+try { L.w = Math.max(320, Math.min(900, Number(localStorage.getItem("jimmy-live-w") || 460))); L.closedByUser = localStorage.getItem("jimmy-live") === "closed"; } catch (e) {}
+document.documentElement.style.setProperty("--live-w", L.w + "px");
+function setLive(open, manual) {
+  L.open = open; $("#live").hidden = !open; $("#app").classList.toggle("live-open", open); $("#btnLive").setAttribute("aria-pressed", open ? "true" : "false");
+  if (manual) { L.closedByUser = !open; try { localStorage.setItem("jimmy-live", open ? "open" : "closed"); } catch (e) {} }
+  if (open && L.tab === "gallery") call("liveGallery");
+}
+function showTab(t) {
+  L.tab = t; $$("#liveTabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  $$(".live-pane").forEach(p => p.hidden = p.dataset.pane !== t); if (t === "gallery") call("liveGallery");
+}
+$("#btnLive").onclick = () => setLive(!L.open, true);
+$("#liveCloseBtn").onclick = () => setLive(false, true);
+$$("#liveTabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+$("#liveUrlForm").onsubmit = e => { e.preventDefault(); const u = $("#liveUrl").value.trim(); if (u) { call("liveOpen", u); $("#liveBadge").textContent = "ouverture…"; } };
+$("#liveSnap").onclick = () => { if (!L.hasFrame) { toast("Rien à capturer : ouvre d'abord une page.", true); return; } call("liveCapture"); };
+$("#feed").innerHTML = '<div class="feed-empty">Ici s\'écrit, en direct, tout ce que fait Aurélie : pages ouvertes, clics, captures, contrôles.</div>';
+(() => {
+  const h = $("#liveResize"); let sx = 0, sw = 0;
+  h.addEventListener("pointerdown", e => { sx = e.clientX; sw = L.w; h.setPointerCapture(e.pointerId); h.classList.add("drag"); });
+  h.addEventListener("pointermove", e => { if (!h.hasPointerCapture(e.pointerId)) return; L.w = Math.max(320, Math.min(900, sw + (sx - e.clientX))); document.documentElement.style.setProperty("--live-w", L.w + "px"); });
+  h.addEventListener("pointerup", () => { h.classList.remove("drag"); try { localStorage.setItem("jimmy-live-w", L.w); } catch (e) {} });
+})();
+function liveIsOn() { return performance.now() - L.frameAt < 3200; }
+function refreshLive() {
+  const on = L.hasFrame && liveIsOn();
+  $("#live").classList.toggle("on", on); $("#btnLive").classList.toggle("active", on);
+  $("#liveBadge").textContent = on ? "en direct" : (L.hasFrame ? "en pause" : "en attente");
+  const who = S.actor === "local" ? S.localName + " travaille" : S.actor === "jimmy" ? "Jimmy" : S.actor === "user" ? "toi" : "";
+  $("#liveWho").textContent = on ? (who || "en direct") : (L.hasFrame ? "dernière image" : "en veille");
+}
+setInterval(refreshLive, 800);
+function liveFrame(e) {
+  L.hasFrame = true; L.frameAt = performance.now();
+  $("#liveFrame").src = "data:image/jpeg;base64," + e.jpg; $("#liveShot").hidden = false; $("#liveEmpty").hidden = true;
+  $("#liveTitle").textContent = e.title || e.url || "";
+  if (document.activeElement !== $("#liveUrl") && e.url && e.url !== "about:blank") $("#liveUrl").value = e.url;
+  refreshLive();
+  if (!L.open && !L.closedByUser) setLive(true, false);      /* s'ouvre toute seule la première fois qu'il y a quelque chose à voir */
+}
+function liveClick(e) {
+  const r = $("#liveRing"); r.style.left = (100 * e.x / e.w) + "%"; r.style.top = (100 * e.y / e.h) + "%";
+  r.classList.remove("go"); void r.offsetWidth; r.classList.add("go");
+}
+function feedAdd(text, who) {
+  if (!text) return;
+  const box = $("#feed"), empty = $(".feed-empty", box); if (empty) empty.remove();
+  const w = who === "local" || who === "user" ? who : "jimmy", d = document.createElement("div"); d.className = "feed-row"; d.dataset.who = w;
+  d.innerHTML = "<time></time><div><b></b><span></span></div>";
+  $("time", d).textContent = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  $("b", d).textContent = w === "local" ? S.localName : w === "user" ? "Toi" : "Jimmy"; $("span", d).textContent = text;
+  box.appendChild(d); while (box.children.length > 150) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight; L.feedN++; $("#feedCount").textContent = L.feedN;
+}
+function openLightbox(it) { L.cur = it; $("#lbImg").src = it.src; $("#lbCap").textContent = it.caption || "Capture"; $("#lightbox").hidden = false; }
+$("#lbClose").onclick = () => { $("#lightbox").hidden = true; };
+$("#lightbox").onclick = e => { if (e.target.id === "lightbox") $("#lightbox").hidden = true; };
+$("#lbShow").onclick = () => { if (L.cur) call("liveShow", L.cur.file); $("#lightbox").hidden = true; };
+$("#lbAttach").onclick = () => { if (L.cur) call("liveAttach", L.cur.file); $("#lightbox").hidden = true; };
+function addImage(e) {
+  closeSteps();
+  const who = e.who || "local", d = document.createElement("div"); d.className = "msg image";
+  d.style.setProperty("--c", who === "jimmy" ? "var(--accent)" : who === "user" ? "var(--muted)" : "var(--local)");
+  d.innerHTML = '<div class="who"><i></i><b></b></div><figure><img alt=""><figcaption><span></span><button type="button">Agrandir</button></figcaption></figure>';
+  $("b", d).textContent = who === "user" ? "CAPTURE · TOI" : (e.name || S.localName).toUpperCase() + " · CAPTURE";
+  const img = $("img", d); img.onload = () => scrollDown(true); img.src = e.src;
+  $("figcaption span", d).textContent = e.caption || "Capture";
+  img.onclick = () => openLightbox(e); $("button", d).onclick = () => openLightbox(e);
+  chat.appendChild(d); refreshEmpty(); scrollDown(true);
+  feedAdd("Capture : " + (e.caption || "image"), who);
+}
+function renderGallery(items) {
+  $("#galCount").textContent = items.length || ""; const box = $("#gallery"); box.innerHTML = "";
+  if (!items.length) { box.innerHTML = '<div class="feed-empty" style="grid-column:1/-1">Aucune capture pour l\'instant. Demande à Aurélie de capturer une page, ou utilise l\'appareil photo en haut du panneau.</div>'; return; }
+  for (const it of items) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "thumb"; b.dataset.who = it.who; b.innerHTML = "<img alt=''><span></span>";
+    $("img", b).src = it.src; $("span", b).textContent = (it.caption || "Capture") + " · " + (it.ts || "").slice(11, 16); b.onclick = () => openLightbox(it); box.appendChild(b);
+  }
+}
+
 /* ------------------------------------------------------------------ préférences venues de Python */
 function fillSelect(sel, items, current) { sel.innerHTML = ""; for (const [label, value] of items) { const o = document.createElement("option"); o.textContent = label; o.value = value; sel.appendChild(o); } sel.value = current; }
 function applyPrefs(p) {
@@ -399,6 +482,7 @@ function applyPrefs(p) {
   S.localName = p.local_name || "Aurélie";
   if (p.local_color) r.setProperty("--local", p.local_color);
   $("#duo").hidden = !p.local_enabled; refreshDuo();
+  if (!L.galInit) { L.galInit = true; call("liveGallery"); }
   fillSelect($("#selModel"), p.models, p.model || ""); fillSelect($("#selEffort"), p.efforts, p.effort || "");
   fillSelect($("#selVoice"), p.voices.map(v => [v, v]), p.voice_preset);
   $$("#voiceMenu input[data-k]").forEach(i => i.checked = !!p.toggles[i.dataset.k]);
@@ -414,7 +498,13 @@ function onEvent(e) {
     case "prefs": applyPrefs(e.p); break;
     case "state": setState(e.state); break;
     case "actor": S.actor = e.who || "idle"; refreshDuo(); break;
-    case "handoff": showHandoff(e); break;
+    case "handoff": showHandoff(e); feedAdd((e.from === "jimmy" ? "Jimmy" : S.localName) + " passe la main à " + (e.to === "jimmy" ? "Jimmy" : S.localName) + (e.why ? " (" + e.why + ")" : ""), e.from); break;
+    case "live_frame": liveFrame(e); break;
+    case "live_state": $("#liveLoad").classList.toggle("on", !!e.loading); break;
+    case "live_click": liveClick(e); break;
+    case "live_action": feedAdd(e.text, e.who); break;
+    case "image": addImage(e); break;
+    case "gallery": renderGallery(e.items || []); break;
     case "status": $("#statusLbl").textContent = e.text; break;
     case "msg": e.role === "user" ? addMsg("user", e.text) : addMsg("assistant", e.text, e.label, e.color); break;
     case "system": addSystem(e.text); break;

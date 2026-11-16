@@ -153,6 +153,8 @@ DEFAULTS = {
     "local_enabled": False,
     "route": "claude",             # qui répond : claude, local, auto (l'IA locale décide, Claude en renfort)
     "local_url": "",               # adresse du moteur (vide = détection automatique sur ce PC)
+    "vision_model": "",            # modèle de vision de LM Studio (facultatif) : Aurélie décrit l'aspect des captures avec
+    "captures_days": 14,           # durée de conservation des captures d'Aurélie (jours)
     "local_model": "",             # modèle de discussion (vide = celui qui est chargé)
     "packs_disabled": [],          # packs de connaissances désactivés
 }

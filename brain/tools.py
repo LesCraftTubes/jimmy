@@ -27,7 +27,7 @@ class Tool:
     description: str
     params: dict                      # {"nom": "description"} : tous des textes, les obligatoires d'abord
     func: object                      # func(args: dict, ctx: "Context") -> str
-    required: list = field(default_factory=list)
+    required: object = None           # None = le premier paramètre ; [] = aucun n'est obligatoire
     order: str = ""                   # expression régulière que le message de l'utilisateur doit contenir (outil d'écriture)
     step: str = ""                    # libellé de l'étape affichée (« Web », « Serveur »...)
 
@@ -36,7 +36,7 @@ class Tool:
             "name": self.name, "description": self.description,
             "parameters": {"type": "object",
                            "properties": {k: {"type": "string", "description": v} for k, v in self.params.items()},
-                           "required": self.required or list(self.params)[:1]}}}
+                           "required": list(self.params)[:1] if self.required is None else list(self.required)}}}
 
 
 @dataclass
@@ -344,4 +344,6 @@ def base_registry() -> Registry:
     r.add(Tool("passer_a_claude", "À utiliser quand la tâche dépasse tes capacités (gros changement, plusieurs échecs) : "
                "résume le problème et ce que tu as essayé pour Claude.",
                {"resume": "le problème, ce qui a été essayé, les extraits utiles"}, _t_claude, step="Relais"))
+    from . import live_tools
+    live_tools.register(r)          # navigateur d'Aurélie, captures, analyse d'image
     return r

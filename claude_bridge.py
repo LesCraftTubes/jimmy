@@ -351,11 +351,16 @@ class ClaudeBridge:
         if not (self.extra_env.get("JIMMY_LOCAL_PORT") and self.cfg.get("local_enabled", False)):
             return ""
         if getattr(sys, "frozen", False):
-            run = f"{sys.executable} --local ask"
+            run = f"{sys.executable} --local"
         else:
-            run = f"{sys.executable} {app_dir() / 'jimmy_local.py'} ask"
+            run = f"{sys.executable} {app_dir() / 'jimmy_local.py'}"
         return (f" Aide gratuite : pour chercher un fichier, lire un fichier, lister un dossier ou chercher sur Internet, demande d'abord "
-                f"à l'IA locale avec {run} \"ta question\" (elle ne consomme pas ton quota) ; garde pour toi le raisonnement et les modifications. ")
+                f"à l'IA locale avec {run} ask \"ta question\" (elle ne consomme pas ton quota) ; garde pour toi le raisonnement et les modifications. "
+                f"POUR VOIR un site ou une image, passe aussi par elle : {run} capture ADRESSE [--full] [--width 390] [--element SELECTEUR] "
+                f"(elle ouvre la page dans son navigateur, la capture, l'affiche à l'utilisateur dans la discussion et dans le panneau de droite, "
+                f"et te rend un rapport texte : titres, images cassées, débordements, erreurs, texte lu) ; {run} see CHEMIN_IMAGE \"question\" "
+                f"(elle analyse une image : texte lu, couleurs). Ne regarde une image toi-même (lecture du fichier) qu'en dernier recours : "
+                f"cela coûte beaucoup de tokens. ")
 
     def _build_cmd(self, cli: str, resume: bool) -> list:
         style = LONG_STYLE if self.cfg.get("long_mode") else SHORT_STYLE

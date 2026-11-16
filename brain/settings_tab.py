@@ -68,6 +68,15 @@ class LocalTab(QWidget):
         self.url.setPlaceholderText("détection automatique (ex. http://127.0.0.1:1234/v1)")
         form.addRow("Adresse (avancé)", self.url)
 
+        self.vision = QLineEdit(str(cfg.get("vision_model") or ""))
+        self.vision.setPlaceholderText("aucun : Aurélie lit le texte et les couleurs d'une image")
+        form.addRow("Modèle de vision", self.vision)
+        form.addRow("", _hint("Facultatif. Pour qu'Aurélie DÉCRIVE aussi l'aspect d'une capture (mise en page, éléments qui se chevauchent), "
+                              "télécharge dans LM Studio un petit modèle qui sait voir (« vision » ou « VL ») et écris ici son nom exact. "
+                              "Sans lui, elle ne devine rien : elle te dit ce qu'elle a lu et ce qu'elle ne peut pas juger."))
+        self.captures_days = QLineEdit(str(cfg.get("captures_days", 14)))
+        form.addRow("Garder les captures (jours)", self.captures_days)
+
         found = packs.load_all(cfg)
         form.addRow("Packs", QLabel(", ".join(p.title for p in found) if found else "aucun (voir README : dossier packs)"))
 
@@ -104,4 +113,5 @@ class LocalTab(QWidget):
 
     def values(self) -> dict:
         return {"local_enabled": self.enabled.isChecked(), "local_model": self.model.currentText().strip(),
-                "local_url": self.url.text().strip()}
+                "local_url": self.url.text().strip(), "vision_model": self.vision.text().strip(),
+                "captures_days": int(self.captures_days.text().strip() or 14) if self.captures_days.text().strip().isdigit() else 14}
