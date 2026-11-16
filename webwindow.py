@@ -12,7 +12,7 @@ import re
 import sys
 import time
 
-from PySide6.QtCore import QObject, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
@@ -68,6 +68,15 @@ class Bridge(QObject):
         self._ready = False
         self._buffer = []
 
+    @staticmethod
+    def _later(fn) -> None:
+        """Une fenêtre ouverte DANS l'appel venu de la page bloque la page (et ses clics) : on l'ouvre juste après."""
+        QTimer.singleShot(0, fn)
+
+    @Slot(bool)
+    def setLocal(self, on: bool) -> None:
+        self._later(lambda: (self.win.set_local_enabled(bool(on)), self.win._push_prefs()))
+
     def emit(self, ev: dict) -> None:
         raw = json.dumps(ev, ensure_ascii=False)
         if self._ready:
@@ -111,11 +120,11 @@ class Bridge(QObject):
 
     @Slot(str)
     def renameSession(self, sid: str) -> None:
-        self.win._rename_session(_Item(sid, self.win._title_of(sid)))
+        self._later(lambda: self.win._rename_session(_Item(sid, self.win._title_of(sid))))
 
     @Slot(str)
     def deleteSession(self, sid: str) -> None:
-        self.win._delete_session(_Item(sid, self.win._title_of(sid)))
+        self._later(lambda: self.win._delete_session(_Item(sid, self.win._title_of(sid))))
 
     @Slot()
     def openCC(self) -> None:
@@ -123,16 +132,15 @@ class Bridge(QObject):
 
     @Slot()
     def openMobile(self) -> None:
-        self.win.on_remote_settings()
+        self._later(self.win.on_remote_settings)
 
     @Slot()
     def pickFolder(self) -> None:
-        self.win.on_folder()
+        self._later(self.win.on_folder)
 
     @Slot()
     def openSettings(self) -> None:
-        self.win.on_settings()
-        self.win._push_prefs()
+        self._later(lambda: (self.win.on_settings(), self.win._push_prefs()))
 
     @Slot()
     def restartApp(self) -> None:

@@ -87,7 +87,7 @@ function addMsg(role, text, label, color) {
   }
   chat.appendChild(d); refreshEmpty(); scrollDown(role === "user");
 }
-function addSystem(text) { closeSteps(); const d = document.createElement("div"); d.className = "sys"; d.innerHTML = "<span></span>"; $("span", d).textContent = text; chat.appendChild(d); refreshEmpty(); scrollDown(); }
+function addSystem(text) { closeSteps(); const d = document.createElement("div"); d.className = "sys" + (text.startsWith("\u21aa") ? " handoff" : ""); d.innerHTML = "<span></span>"; $("span", d).textContent = text; chat.appendChild(d); refreshEmpty(); scrollDown(); }
 function addStep(text, first) {
   if (!S.stepsBox || first) {
     closeSteps();
@@ -204,6 +204,8 @@ $("#btnVoiceTest").onclick = () => call("voiceTest");
 $("#selVoice").onchange = e => call("voicePreset", e.target.value);
 $("#selModel").onchange = e => call("setCost", "model", e.target.value);
 $("#selEffort").onchange = e => call("setCost", "effort", e.target.value);
+$("#btnLocal").onclick = () => call("setLocal", true);
+$("#swLocal").onchange = e => call("setLocal", e.target.checked);
 $$("#routeSeg button").forEach(b => b.onclick = () => { setRoute(b.dataset.v); call("setRoute", b.dataset.v); });
 function setRoute(v) { $$("#routeSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v)); }
 $$("#voiceMenu input[data-k]").forEach(i => i.onchange = () => call("toggle", i.dataset.k, i.checked));
@@ -222,7 +224,7 @@ function applyPrefs(p) {
   fillSelect($("#selModel"), p.models, p.model || ""); fillSelect($("#selEffort"), p.efforts, p.effort || "");
   fillSelect($("#selVoice"), p.voices.map(v => [v, v]), p.voice_preset);
   $$("#voiceMenu input[data-k]").forEach(i => i.checked = !!p.toggles[i.dataset.k]);
-  $("#routeSeg").hidden = !p.local_enabled; setRoute(p.route);
+  $("#routeSeg").hidden = !p.local_enabled; $("#btnLocal").hidden = !!p.local_enabled; $("#swLocal").checked = !!p.local_enabled; setRoute(p.route);
   $("#wakeWord").textContent = p.wake_label;
   document.body.classList.toggle("psy", !!p.psy);
 }

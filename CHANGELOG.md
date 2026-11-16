@@ -1,5 +1,12 @@
 ﻿# Historique des versions
 
+## 2.0.2
+- **Menus cliquables** : le menu « Voix et écoute » était recouvert par la zone de discussion (aucun clic ne passait sur la voix, ni sur les interrupteurs). Corrigé et vérifié contrôle par contrôle. Les fenêtres de Réglages, de renommage et de choix du dossier s'ouvrent maintenant hors de l'appel venu de la page, ce qui évite qu'elles bloquent les clics.
+- **Activer l'IA locale d'un clic** : un bouton « Activer l'IA locale » dans la barre du haut (et un interrupteur dans le menu) active le mode Auto sans passer par les Réglages, et dit tout de suite si un moteur local répond.
+- **Mode Auto vraiment automatique** : si le moteur local est éteint, si l'IA locale plante, ou si elle répond « je ne peux pas », Jimmy ne te montre plus ce refus : Claude reprend la demande d'origine tout seul. Le passage est écrit dans la discussion (ligne verte « ↪ L'IA locale passe la main à Claude (raison) »).
+- **L'IA locale peut agir** : elle sait maintenant créer et modifier des fichiers du dossier de travail (sauvegarde faite avant) et lancer des commandes PowerShell, seulement quand ton message le demande. Le code refuse le dangereux : fichiers de secrets, `--force`, `--no-verify`, `DROP`/`TRUNCATE`, suppressions récursives, réglages système, SSH (le serveur passe par Claude).
+- Nouveaux tests : `test_brain.py` (outils, garde-fous, relais) et `test_local_flow.py` (passage Auto / manuel / `@local`).
+
 ## 2.0.1
 - **Mise à jour réparée** : elle s'annulait toute seule (« annulation des modifications ») parce que Bionic, ton IA locale, charge quelques fichiers du dossier de Jimmy et que Windows ne peut pas le fermer. L'installateur ne cherche plus que les `.exe` à fermer, met de côté les fichiers verrouillés au lieu d'abandonner, et ferme les `Jimmy.exe` sans fenêtre restés ouverts. Testé avec un faux Jimmy et des fichiers verrouillés.
 - **Notes de version complètes** : la fenêtre « Mise à jour » n'est plus coupée, elle affiche tout le texte avec une barre de défilement.

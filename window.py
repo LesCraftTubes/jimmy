@@ -287,6 +287,7 @@ class _Signals(QObject):
     remote_new = Signal()
     remote_switch = Signal(str)
     local_reply = Signal(str, str)   # réponse de l'IA locale, résumé à passer à Claude (ou vide)
+    info = Signal(str)               # message système venu d'un fil de travail
 
 
 class JimmyWindow(QMainWindow):
@@ -307,6 +308,9 @@ class JimmyWindow(QMainWindow):
         self.sig.remote_new.connect(self.on_new)
         self.sig.remote_switch.connect(self._on_remote_switch)
         self.sig.local_reply.connect(self._on_local_reply)
+        self.sig.info.connect(self.add_system)
+        self._local_forced = False
+        self._local_reason = ""
         self.local_agent = None     # IA locale, créée à la première demande
         self._force_claude = False  # le prochain message part chez Claude quoi que dise le sélecteur
         self._remote_quiet = False  # pendant un réaffichage local (thème) : rien n'est renvoyé au téléphone
@@ -1401,8 +1405,10 @@ class JimmyWindow(QMainWindow):
         self.set_state("thinking")
         self._steps_this_turn = 0
         parts = text.split(None, 1)
-        if parts and parts[0].lower() in ("@local", "@ia"):
+        self._local_forced = bool(parts and parts[0].lower() in ("@local", "@ia"))
+        if self._local_forced:
             text = parts[1] if len(parts) > 1 else ""
+        self._local_reason = ""
         threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
 
     def _work_local(self, text: str) -> None:
@@ -1414,28 +1420,83 @@ class JimmyWindow(QMainWindow):
                 self.sig.step.emit("IA locale · démarrage du moteur")
                 why = self.local_agent.ready()
                 if why:
-                    self.sig.failure.emit("IA locale indisponible : " + why)
+                    if self._route() == "auto" and not self._local_forced:
+                        # Mode Auto : un moteur coupé ne bloque jamais, Claude répond à sa place.
+                        self._local_reason = "indisponible"
+                        self.sig.local_reply.emit("", f"{text}\n\n(L'IA locale est indisponible : {why})")
+                    else:
+                        self.sig.failure.emit("IA locale indisponible : " + why)
                     return
             reply, handoff = self.local_agent.run(text)
+            self._local_reason = self.local_agent.last_reason
             self.sig.local_reply.emit(reply, handoff)
         except Exception as e:  # noqa: BLE001
-            self.sig.failure.emit(f"IA locale : {e}")
+            if self._route() == "auto" and not self._local_forced:
+                self._local_reason = "erreur"
+                self.sig.local_reply.emit("", f"{text}\n\n(L'IA locale a planté : {e})")
+            else:
+                self.sig.failure.emit(f"IA locale : {e}")
+
+    _HANDOFF_WHY = {
+        "demande": "ça dépasse ses moyens",
+        "refus": "elle n'a pas pu faire cette demande",
+        "indisponible": "le moteur local ne répond pas",
+        "erreur": "elle a rencontré une erreur",
+    }
 
     def _on_local_reply(self, text: str, handoff: str) -> None:
         self.thinking = False
-        self._remote_emit({"type": "message", "role": "assistant", "text": text})
-        self.add_message("local", text)
+        reason = getattr(self, "_local_reason", "")
+        auto = self._route() == "auto" and not getattr(self, "_local_forced", False)
+        # En mode Auto, un refus ou du vide n'est pas montré : l'utilisateur voit seulement le passage à Claude puis sa réponse.
+        if text and not (handoff and auto and reason in ("refus", "indisponible", "erreur")):
+            self._remote_emit({"type": "message", "role": "assistant", "text": text})
+            self.add_message("local", text)
         self._last_reply = ""
+        if handoff and auto:
+            why = self._HANDOFF_WHY.get(reason, "elle a besoin de Claude")
+            self.add_system(f"↪ L'IA locale passe la main à Claude ({why}).")
+            self._finish()
+
+            def go() -> None:
+                self._force_claude = True          # le message suivant part chez Claude quoi que dise le sélecteur
+                self.submit("L'IA locale te transmet cette demande :\n" + handoff, echo=False)
+            QTimer.singleShot(0, go)
+            return
         if handoff:
-            if self._route() == "auto":
-                self.add_system("L'IA locale passe la main à Claude avec son résumé.")
-                self._force_claude = True
-                self._finish()
-                QTimer.singleShot(0, lambda: self.submit("L'IA locale te transmet ce problème :\n" + handoff, echo=False))
-                return
-            self.add_system("L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
+            self.add_system("↪ L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
                             "ou écris « @claude » devant ta demande.")
         self._finish()
+
+    def set_local_enabled(self, on: bool) -> None:
+        """Active ou coupe l'IA locale d'un clic (sans passer par les Réglages) et dit tout de suite si le moteur répond."""
+        self.cfg.set("local_enabled", bool(on))
+        if on:
+            self.cfg.set("route", "auto")
+        self.route_box.setVisible(bool(on))
+        if self.local_agent:
+            self.local_agent.engine = None
+        self._refresh_placeholder()
+        if not on:
+            self.add_system("IA locale coupée : Claude répond seul.")
+            return
+        self.add_system("IA locale activée en mode Auto : elle répond d'abord, Claude reprend si ça dépasse ses moyens. Je vérifie le moteur…")
+
+        def work() -> None:
+            try:
+                from brain import engine
+                found = engine.discover(self.cfg)
+                if found["base"]:
+                    models = ", ".join(found["models"][:3]) or "aucun modèle chargé"
+                    self.sig.info.emit(f"Moteur local trouvé ({models}). Tout est prêt.")
+                else:
+                    inst = engine.installed_engines()
+                    self.sig.info.emit("Aucun moteur local ne répond pour l'instant : en attendant, Claude répond à sa place. "
+                                       + (f"Lance {', '.join(inst)} et charge un modèle." if inst
+                                          else "Installe LM Studio (lmstudio.ai), télécharge un modèle, puis relance-le."))
+            except Exception as e:  # noqa: BLE001
+                self.sig.info.emit(f"Impossible de vérifier le moteur local : {e}")
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_route_changed(self, _i: int) -> None:
         self.cfg.set("route", self.route_box.currentData())

@@ -49,6 +49,7 @@
       </div>
 
       <div class="top-right">
+        <button class="local-btn" id="btnLocal" hidden title="Une IA gratuite qui tourne sur ton PC : elle rÃ©pond d'abord, Claude reprend si Ã§a dÃ©passe ses moyens">Activer l'IA locale</button>
         <div class="seg" id="routeSeg" hidden title="Qui répond : Claude, l'IA locale (gratuite, sur ton PC) ou Auto (l'IA locale d'abord, Claude en renfort)">
           <button data-v="claude">Claude</button><button data-v="local">IA locale</button><button data-v="auto">Auto</button>
         </div>
@@ -59,6 +60,8 @@
           <div class="menu" id="voiceMenu" hidden>
             <div class="menu-title">Voix de Jimmy</div>
             <div class="row"><select id="selVoice"></select><button class="icon-btn small" id="btnVoiceTest" title="Écouter un exemple"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button></div>
+            <div class="menu-title">IA locale</div>
+            <label class="switch"><input type="checkbox" id="swLocal"><span></span>IA locale (gratuite, sur ce PC)</label>
             <div class="menu-title">Comportement</div>
             <label class="switch"><input type="checkbox" data-k="voice_enabled"><span></span>Lire les réponses à voix haute</label>
             <label class="switch"><input type="checkbox" data-k="wake_words_enabled"><span></span>Écoute permanente du mot d'éveil</label>
