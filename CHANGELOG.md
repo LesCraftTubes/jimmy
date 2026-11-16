@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 2.2.1
+- **Aurélie ne se fait plus passer pour Jimmy** : l'étiquette « [Jimmy a répondu] » que j'avais mise dans son historique était recopiée dans ses propres réponses, ce qui donnait l'impression d'un faux. Le fil de la discussion est maintenant donné à Aurélie à part (« Utilisateur : ... / Jimmy : ... ») et non comme de faux tours de parole, elle relit toujours les derniers messages avant de répondre, et si une étiquette de ce genre apparaît quand même, elle est retirée avant l'affichage.
+- **Plus d'appli inventée** : Aurélie avait répondu que l'appli mobile se télécharge sur le Google Play Store. Faux : l'appli mobile de Jimmy est une page web. Bouton « Appli mobile » dans Jimmy, scanner le QR code ou ouvrir le lien sur le téléphone, autoriser l'appareil sur le PC, puis « Ajouter à l'écran d'accueil » dans le navigateur. Elle connaît maintenant cette procédure et n'en invente plus d'autre.
+
 ## 2.2.0
 - **Une discussion ne disparaît plus jamais par accident** : quand une discussion est trop grosse, Jimmy ne supprime plus l'ancienne tout de suite. Elle reste dans la liste (grisée) jusqu'à ce que la nouvelle existe vraiment et que Claude y ait répondu. Seulement ensuite, la nouvelle prend exactement le même nom et l'ancienne est supprimée (copie gardée 7 jours dans la corbeille). Si l'envoi échoue (limite d'usage atteinte, erreur, fermeture de Jimmy), rien n'est perdu et le résumé de reprise repart avec le prochain message.
 - **Aurélie relit le fil de la discussion avant de répondre** : elle reprend les derniers messages réels, les tiens et ceux de Jimmy, ainsi que la reprise de contexte d'une discussion qui vient de naître. Elle ne se perd plus quand tu réponds « oui vas-y » ou « fais-le », et son fil ne s'efface plus au redémarrage ni quand tu changes de discussion. Elle garde 10 échanges au lieu de 8 et retient davantage des réponses de Jimmy.

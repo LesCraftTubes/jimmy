@@ -479,7 +479,7 @@ def recent_turns(workdir: str, session_id: str, n: int = 8, clip: int = 500) -> 
             text = re.sub(r"^\[Contexte : l'IA locale.*?\]\s*", "", text)
             out.append({"role": "user", "content": text[:clip]})
         else:
-            out.append({"role": "assistant", "content": "[Jimmy a répondu] " + text[:clip]})
+            out.append({"role": "assistant", "content": text[:clip]})
     return out
 
 

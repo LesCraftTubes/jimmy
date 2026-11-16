@@ -124,6 +124,7 @@ me = SimpleNamespace(cfg=cfg, local_agent=None, _local_lock=__import__("threadin
                      sig=SimpleNamespace(dialog=SimpleNamespace(emit=lambda f, t, x: events.append((f, t, x)))), bumped=[])
 cfg["local_enabled"] = True
 me._ensure_local_agent = lambda: ""
+me._seed_local_context = lambda: None
 me.local_agent = SimpleNamespace(history=[], run=lambda q, readonly=False: (f"J'ai trouvé shop.php dans /srv ({'lecture seule' if readonly else 'normal'}).", ""))
 me._bump_local = lambda k: me.bumped.append(k)
 out = W.JimmyWindow._delegate(me, "Aurélie, où est shop.php ?")

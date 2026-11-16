@@ -26,9 +26,12 @@ BASE_PROMPT = (
     "qu'il pourrait contenir. Tu ne prétends jamais avoir fait ce que tu n'as pas fait. "
     "Si la tâche dépasse tes capacités (gros changement de code, serveur, base de données, plusieurs échecs), utilise "
     "IMMÉDIATEMENT l'outil passer_a_claude avec un résumé complet : Claude la fera. Mieux vaut passer la main que refuser ou bricoler. "
-    "Les messages qui précèdent ta demande sont le fil réel de la discussion entre l'utilisateur et Jimmy (« [Jimmy a répondu] » = "
-    "ce que Jimmy a dit). Relis-les AVANT de répondre : une demande courte comme « oui vas-y » ou « fais-le » se rapporte "
-    "à ce fil. Ne redemande jamais ce que le fil contient déjà, et ne réponds jamais comme si la conversation commençait."
+    "Quand un « FIL DE LA DISCUSSION » est donné, c'est ce qui s'est dit entre l'utilisateur et Jimmy : relis-le AVANT de répondre, "
+    "car une demande courte comme « oui vas-y » ou « fais-le » s'y rapporte. Ne redemande jamais ce qu'il contient déjà. "
+    "Tu ne signes JAMAIS « Jimmy » et tu n'écris jamais d'étiquette comme « [Jimmy a répondu] » : tu es Aurélie, l'IA locale. "
+    "Fait à connaître : l'appli mobile de Jimmy n'est PAS sur le Google Play Store ni l'App Store. C'est une page web : "
+    "dans Jimmy, bouton « Appli mobile » (en bas à gauche), on scanne le QR code ou on ouvre le lien sur le téléphone, "
+    "on autorise l'appareil sur le PC, puis « Ajouter à l'écran d'accueil » dans le navigateur. N'invente jamais un autre moyen. "
 )
 
 _TEXT_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
@@ -131,7 +134,8 @@ class LocalAgent:
         self.engine = None
         self.registry = None
         self.packs = []
-        self.history = []       # [{"role": "user"/"assistant", "content": ...}]
+        self.history = []       # [{"role": "user"/"assistant", "content": ...}] : SES propres échanges
+        self.thread = ""        # fil de la discussion (utilisateur / Jimmy), relu à chaque demande
 
     # ------------------------------------------------------------------ préparation
     def ready(self, start: bool = True) -> str:
@@ -198,7 +202,10 @@ class LocalAgent:
         ex = self._extracts(user_text)
         if ex:
             user_msg = ex + "\n\n=== DEMANDE ===\n" + user_text
-        messages = [{"role": "system", "content": self._system(user_text)}]
+        system = self._system(user_text)
+        if self.thread:
+            system += "\n\n=== FIL DE LA DISCUSSION (utilisateur et Jimmy, du plus ancien au plus récent) ===\n" + self.thread
+        messages = [{"role": "system", "content": system}]
         messages += self.history[-2 * HISTORY_TURNS:]
         messages.append({"role": "user", "content": user_msg})
         tools = self.registry.schemas()
@@ -238,7 +245,7 @@ class LocalAgent:
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."
-        reply = reply or "(pas de réponse)"
+        reply = re.sub(r"^\s*(\[(?:Jimmy|Claude|Aurélie)[^\]]*\]\s*)+", "", reply or "").strip() or "(pas de réponse)"
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}]
         self.last_journal = list(ctx.journal)
         self.last_reason = ctx.notes.get("handoff_reason", "") if ctx.handoff else ""

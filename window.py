@@ -1486,23 +1486,25 @@ class JimmyWindow(QMainWindow):
         return str(self.cfg.get("local_name") or "Aurélie")
 
     def _seed_local_context(self) -> None:
-        """Avant chaque réponse d'Aurélie : elle relit le fil de la discussion (messages de l'utilisateur et de Jimmy).
+        """Avant chaque réponse d'Aurélie : elle relit le fil réel de la discussion (utilisateur et Jimmy).
 
-        Son historique en mémoire vive est perdu au redémarrage ou au changement de discussion : on le reconstruit alors
-        depuis la discussion elle-même, et on y ajoute la reprise de contexte si une nouvelle discussion vient de naître."""
+        Le fil est donné dans son message système, sous forme de lignes « Utilisateur : ... / Jimmy : ... », et non comme de
+        faux tours de parole : un petit modèle recopierait sinon l'étiquette dans ses propres réponses.
+        Reconstruit à chaque demande depuis la discussion : rien ne se perd au redémarrage ni au changement de discussion."""
         agent, sid = self.local_agent, self.bridge.session_id
         if agent is None:
             return
-        key = sid or ""
-        if getattr(self, "_local_seed_sid", None) != key or not agent.history:
-            turns = sessions.recent_turns(self.bridge.workdir(), sid, 8) if sid else []
-            note = self._handoff_note or self._note_inflight
-            if note:
-                turns = [{"role": "user", "content": note[:600]},
-                         {"role": "assistant", "content": "[Reprise de contexte reçue, je m'en sers.]"}] + turns
-            if turns or not agent.history:
-                agent.history = turns + [m for m in agent.history if m not in turns]
-            self._local_seed_sid = key
+        lines = []
+        note = self._handoff_note or self._note_inflight
+        if note:
+            lines.append("Reprise de contexte : " + " ".join(note.split())[:600])
+        if sid:
+            for t in sessions.recent_turns(self.bridge.workdir(), sid, 8):
+                lines.append(("Utilisateur : " if t["role"] == "user" else "Jimmy : ") + t["content"])
+        agent.thread = "\n".join(lines)
+
+    def _local_name(self) -> str:
+        return str(self.cfg.get("local_name") or "Aurélie")
 
     def _relay_text(self, text: str, reason: str, journal=None) -> str:
         """L'IA locale écrit elle-même son message à Jimmy (avec son modèle si elle tourne, sinon une phrase de secours)."""
@@ -1643,8 +1645,7 @@ class JimmyWindow(QMainWindow):
     def _share_with_local(self, claude_text: str) -> None:
         """Claude vient de répondre : l'IA locale le sait aussi (elle garde le fil de la conversation)."""
         if self.local_agent is not None and self.cfg.get("local_enabled", False) and self._last_request:
-            self.local_agent.history += [{"role": "user", "content": self._last_request[:400]},
-                                         {"role": "assistant", "content": "[Jimmy a répondu] " + (claude_text or "")[:900]}]
+            pass    # le fil (demandes + réponses de Jimmy) est relu dans la discussion elle-même : voir _seed_local_context
 
     def set_local_enabled(self, on: bool) -> None:
         """Active ou coupe l'IA locale d'un clic (sans passer par les Réglages) et dit tout de suite si le moteur répond."""
