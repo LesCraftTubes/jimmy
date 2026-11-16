@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 2.1.2
+- **Textes et boutons bien plus lisibles** : les gris secondaires (boutons du bas à gauche, recherche d'une discussion, titres de section, dossier de travail, heures, discussions pleines) étaient trop sombres, à 3,3:1 de contraste alors que le minimum lisible est 4,5:1. Ils sont maintenant à 6,7:1 ou plus, les boutons du bas sont presque blancs, et les petits textes passent de 11 à 12 px. Un test vérifie le contraste pour que ça ne se reproduise pas.
+- **Aurélie** : une demande de modification d'interface (boutons, couleurs, apparence...) va directement à Jimmy au lieu de partir en recherche web ; « recherche dans une discussion » ne lance plus de recherche Internet ; son message à Jimmy ne parle plus d'elle à la troisième personne et ne s'excuse plus.
+
 ## 2.1.1
 - **Aurélie répond de mémoire à « qu'est-ce que tu sais faire ? »** : aucune recherche, aucun token. Si la question concerne aussi Jimmy, elle lui passe la main pour qu'il présente ses propres capacités. Avant, elle partait chercher « Jimmy » sur Internet 7 fois de suite puis refusait.
 - **Plus de recherches en boucle** : une recherche identique n'est jamais relancée, et pas plus de 3 recherches web par demande.

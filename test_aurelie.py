@@ -185,5 +185,46 @@ class Refuse:
 m = D.message_to_jimmy(Refuse(), "présente vos capacités", [], "demande", "Aurélie")
 check("le modèle refuse : phrase de secours (« Jimmy, ... »), pas le refus", m.startswith("Jimmy,") and "désolée" not in m)
 
+# ---------------------------------------------------------------- une demande de modification d'interface va directement à Jimmy
+ui = "j'aimerais que tu corriges un petit truc, c'est les boutons à gauche, et la recherche dans une discussion, trop gris"
+check("demande d'interface (boutons, couleurs) : directement à Jimmy, sans détour", A.needs_claude(ui))
+check("« recherche dans une discussion » ne lance PAS de recherche web", A.prefetch(ui) == [])
+check("une vraie demande Internet lance bien la recherche", A.prefetch("cherche sur internet le prix de la RTX 4070")[0][0] == "chercher_web")
+
+
+class Confus:
+    def chat(self, messages, tools=None):
+        return {"content": "Je suis désolé pour le malentendu, Jimmy. Aurélie a demandé une correction concernant les boutons."}
+
+
+m = D.message_to_jimmy(Confus(), "corrige les boutons", [], "demande", "Aurélie")
+check("message confus (parle d'elle à la 3e personne, s'excuse) : phrase de secours", m.startswith("Jimmy,") and "malentendu" not in m)
+
+# ---------------------------------------------------------------- lisibilité : les gris secondaires restent lisibles (contraste >= 4,5:1)
+import re
+
+
+def lum(h):
+    h = h.lstrip("#")
+    r, g, b = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+
+def ratio(a, b):
+    la, lb = sorted((lum(a), lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+css = (Path(__file__).parent / "webui" / "style.css").read_text(encoding="utf-8")
+for label, selector in (("sobre sombre", ":root {"), ("sobre clair", '[data-theme="light"] {'), ("cyberpunk", '[data-look="cyber"] {')):
+    block = css[css.index(selector):]
+    block = block[:block.index("}")]
+    v = dict(re.findall(r"--([a-z0-9]+): (#[0-9a-fA-F]{6})", block))
+    surf = v.get("surface") or ("#11141b" if label == "sobre sombre" else "#ffffff")
+    for name in ("muted", "faint"):
+        if name in v:
+            check(f"contraste {label} : {name} lisible ({ratio(v[name], surf):.1f}:1)", ratio(v[name], surf) >= 4.5)
+
 print("\nRESULTAT :", "TOUT EST OK" if not fails else f"{len(fails)} ECHEC(S) : {fails}")
 sys.exit(1 if fails else 0)

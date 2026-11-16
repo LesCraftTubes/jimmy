@@ -111,14 +111,15 @@ def message_to_jimmy(engine, user_text: str, journal: list, reason: str, name: s
     why = {"demande": "la tâche dépasse tes moyens", "refus": "tu n'as pas réussi", "indisponible": "ton moteur ne répond pas",
            "erreur": "tu as rencontré une erreur"}.get(reason, "tu as besoin de lui")
     system = (f"Tu es {name}, l'IA locale de l'utilisateur. Tu parles à Jimmy, l'assistant Claude, entre collègues, en français, naturel, "
-              "tutoiement. Écris UN message de 2 à 3 phrases courtes : ce que veut l'utilisateur, ce que tu as déjà fait ou trouvé "
+              f"tutoiement. « je » = toi ({name}) : ne parle JAMAIS de {name} à la troisième personne, ne t'excuse pas, commence par « Jimmy, ». "
+              "L'utilisateur est un tiers (« il »). Écris UN message de 2 à 3 phrases courtes : ce que veut l'utilisateur, ce que tu as déjà fait ou trouvé "
               "(résume, ne recopie pas), et pourquoi tu lui passes la main. Pas de liste, pas de titre, pas de guillemets autour du message.")
     user = f"Demande de l'utilisateur : {_clip(user_text, 500)}\nCe que tu as déjà fait :\n{done}\nTu lui passes la main parce que {why}."
     text = _ask_model(engine, [{"role": "system", "content": system}, {"role": "user", "content": user}], timeout)
     text = re.sub(r"^[\"«»\s]+|[\"«»\s]+$", "", text)
     from .agent import is_failure
     # Un vrai message commence par « Jimmy » (elle lui parle) ; un refus générique (« je ne peux pas aider ») est écarté.
-    refus = is_failure(text) and not text.lower().startswith("jimmy")
+    refus = (is_failure(text) and not text.lower().startswith("jimmy")) or "jimmy" not in text[:20].lower()
     if len(text) < 12 or len(text) > 900 or refus:
         return backup          # un refus (« je ne peux pas aider ») n'est pas un message pour Jimmy : phrase de secours
     return text

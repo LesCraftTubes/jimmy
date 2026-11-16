@@ -63,7 +63,8 @@ def _args(call: dict) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
-_WEB = re.compile(r"(sur (internet|le web|google)|en ligne|cherche[- ]?(moi)? |recherche |trouve[- ]?moi |actualit|dernière version|derniers? |prix de )", re.I)
+# Recherche web lancée d'avance SEULEMENT quand la demande parle clairement d'Internet (« recherche dans une discussion » n'en est pas une).
+_WEB = re.compile(r"(sur (internet|le web|google)|en ligne|actualit|dernière version|prix de )", re.I)
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _MEM = re.compile(r"(souviens|mémoire|memoire|on avait (décidé|dit)|rappelle[- ]?moi|retiens|déjà fait)", re.I)
 
@@ -101,7 +102,8 @@ _VIDE = ("", "(pas de réponse)", "Je n'ai pas réussi à conclure en quelques �
 
 
 _LOURD = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.[ée]cri|architecture|\bbug\b|plante|corrige (le|la|les|mon|ma)|"
-                    r"ajoute (une|un) (fonction|page|syst.me|commande)|\bskript\b|\.sk\b|release|publie|github|mise . jour|installe|plugin|boss|combat)", re.I)
+                    r"ajoute (une|un) (fonction|page|syst.me|commande)|\bskript\b|\.sk\b|release|publie|github|mise . jour|installe|plugin|boss|combat|"
+                    r"corrige|modifie|bouton|couleur|interface|apparence|affichage|th.me|contraste|design)", re.I)
 
 
 def needs_claude(text: str) -> bool:
