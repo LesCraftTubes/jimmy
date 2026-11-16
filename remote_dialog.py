@@ -63,7 +63,7 @@ class RemoteDialog(QDialog):
         self.url_edit.setPlaceholderText("https://jimmy.mondomaine.fr")
         self.url_edit.editingFinished.connect(self._url_changed)
         lay.addWidget(self.url_edit)
-        self.perm_host = QLineEdit(str(cfg.get("remote_perm_host", "")) or "jimmy.legendead.fr")
+        self.perm_host = QLineEdit(str(cfg.get("remote_perm_host", "")) or "jimmy.example.com")
         self.perm_host.setPlaceholderText("jimmy.mondomaine.fr")
         lay.addWidget(self.perm_host)
         self.b_perm = QPushButton("Créer mon lien permanent (une seule connexion à Cloudflare)")

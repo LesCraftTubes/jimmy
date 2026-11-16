@@ -159,7 +159,7 @@ class Tunnel:
                 progress(t)
         host = (hostname or "").strip().lower()
         if not valid_hostname(host):
-            return False, "Adresse invalide. Exemple : jimmy.legendead.fr", None
+            return False, "Adresse invalide. Exemple : jimmy.example.com", None
         if not self._ensure_binary():
             return False, self.error or "cloudflared est indisponible.", None
         exe = str(binary_path())

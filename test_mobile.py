@@ -219,29 +219,29 @@ TU.binary_path = lambda: bat
 TU.Tunnel._ensure_binary = lambda self: True
 home = work / "cfhome"
 
-check("adresse valide acceptée", TU.valid_hostname("jimmy.legendead.fr") and TU.valid_hostname("a-b.example.com"))
+check("adresse valide acceptée", TU.valid_hostname("jimmy.example.com") and TU.valid_hostname("a-b.example.com"))
 check("adresses dangereuses ou invalides refusées", not any(TU.valid_hostname(h) for h in ("", "jimmy", "x y.fr", "a.fr; calc", "http://jimmy.fr", "-a.fr", "jimmy..fr")))
 
 t = TU.Tunnel()
 ok, msg, spec = t.setup_named("pas valide", home=home)
 check("hôte invalide : refusé AVANT de lancer quoi que ce soit", not ok and not calls_log.exists())
 steps = []
-ok, msg, spec = t.setup_named("Jimmy.Legendead.fr", progress=steps.append, home=home, login_timeout=20)
-check("création du lien permanent réussie", ok and spec and spec["host"] == "jimmy.legendead.fr" and "https://jimmy.legendead.fr" in msg)
+ok, msg, spec = t.setup_named("Jimmy.Example.com", progress=steps.append, home=home, login_timeout=20)
+check("création du lien permanent réussie", ok and spec and spec["host"] == "jimmy.example.com" and "https://jimmy.example.com" in msg)
 calls = [json.loads(line) for line in calls_log.read_text().splitlines()]
 kinds = [c[:3] if c[:2] == ["tunnel", "route"] else c[:2] for c in calls]
 check("ordre : connexion Cloudflare, liste, création, route DNS", kinds == [["tunnel", "login"], ["tunnel", "list"], ["tunnel", "create"], ["tunnel", "route", "dns"]])
-check("l'adresse demandée est bien la route DNS (jimmy.legendead.fr)", calls[-1][-1] == "jimmy.legendead.fr")
+check("l'adresse demandée est bien la route DNS (jimmy.example.com)", calls[-1][-1] == "jimmy.example.com")
 check("l'utilisateur est prévenu de la connexion Cloudflare à faire", any("navigateur" in s for s in steps))
 check("les clés du tunnel sont créées dans le dossier Cloudflare de l'utilisateur", Path(spec["cred"]).exists() and (home / "cert.pem").exists())
 calls_log.unlink()
-ok2, _, spec2 = TU.Tunnel().setup_named("jimmy.legendead.fr", home=home)
+ok2, _, spec2 = TU.Tunnel().setup_named("jimmy.example.com", home=home)
 calls2 = [json.loads(line) for line in calls_log.read_text().splitlines()]
 check("2e fois : pas de nouvelle connexion Cloudflare (déjà connecté)", ok2 and ["tunnel", "login"] not in [c[:2] for c in calls2])
 
 cfgfile = TU.write_named_config(8765, spec)
 txt = cfgfile.read_text(encoding="utf-8")
-check("réglage du tunnel : bon nom de domaine et bon port local, 404 pour le reste", "hostname: jimmy.legendead.fr" in txt and "http://127.0.0.1:8765" in txt and "http_status:404" in txt and spec["id"] in txt)
+check("réglage du tunnel : bon nom de domaine et bon port local, 404 pour le reste", "hostname: jimmy.example.com" in txt and "http://127.0.0.1:8765" in txt and "http_status:404" in txt and spec["id"] in txt)
 
 t3 = TU.Tunnel()
 changes = []
@@ -252,7 +252,7 @@ while t3.status != "prêt" and time.time() - t0 < 20:
     app.processEvents()
     time.sleep(0.1)
 check("le tunnel permanent démarre et devient « prêt »", t3.status == "prêt")
-check("son adresse est fixe, connue dès le démarrage (même avant d'être prêt)", all(u == "https://jimmy.legendead.fr" for s, u in changes if s in ("démarrage", "prêt")) and t3.url == "https://jimmy.legendead.fr")
+check("son adresse est fixe, connue dès le démarrage (même avant d'être prêt)", all(u == "https://jimmy.example.com" for s, u in changes if s in ("démarrage", "prêt")) and t3.url == "https://jimmy.example.com")
 t3.stop()
 
 # ---------------------------------------------------------------- le gestionnaire : adresse permanente enregistrée
@@ -261,8 +261,8 @@ from remote_manager import RemoteManager
 mcfg = Cfg(remote_enabled=True, remote_mode="permanent", remote_port=free_port(), remote_perm_host=spec["host"], remote_perm_id=spec["id"],
            remote_perm_cred=spec["cred"], remote_perm_name=spec["name"])
 mgr = RemoteManager(mcfg, H())
-check("mode permanent : l'adresse du lien est toujours https://<ton domaine>", mgr.base_url() == "https://jimmy.legendead.fr" and mgr.secure())
-check("le lien de jumelage contient le code (à copier, ou en QR)", mgr.pair_url().startswith("https://jimmy.legendead.fr/#pair="))
+check("mode permanent : l'adresse du lien est toujours https://<ton domaine>", mgr.base_url() == "https://jimmy.example.com" and mgr.secure())
+check("le lien de jumelage contient le code (à copier, ou en QR)", mgr.pair_url().startswith("https://jimmy.example.com/#pair="))
 mgr.cfg["remote_perm_host"] = ""
 mgr.server.running = True            # (le serveur n'est pas démarré dans ce test : on regarde seulement le message)
 check("lien permanent pas encore créé : le bouton est proposé", "pas encore créé" in mgr.status_text() and mgr.base_url() == "")

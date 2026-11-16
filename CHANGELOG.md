@@ -1,5 +1,12 @@
 ﻿# Historique des versions
 
+## 2.2.0
+- **Une discussion ne disparaît plus jamais par accident** : quand une discussion est trop grosse, Jimmy ne supprime plus l'ancienne tout de suite. Elle reste dans la liste (grisée) jusqu'à ce que la nouvelle existe vraiment et que Claude y ait répondu. Seulement ensuite, la nouvelle prend exactement le même nom et l'ancienne est supprimée (copie gardée 7 jours dans la corbeille). Si l'envoi échoue (limite d'usage atteinte, erreur, fermeture de Jimmy), rien n'est perdu et le résumé de reprise repart avec le prochain message.
+- **Aurélie relit le fil de la discussion avant de répondre** : elle reprend les derniers messages réels, les tiens et ceux de Jimmy, ainsi que la reprise de contexte d'une discussion qui vient de naître. Elle ne se perd plus quand tu réponds « oui vas-y » ou « fais-le », et son fil ne s'efface plus au redémarrage ni quand tu changes de discussion. Elle garde 10 échanges au lieu de 8 et retient davantage des réponses de Jimmy.
+- **Appli mobile : un seul appareil, un lien qui ne change plus** : chaque nouveau téléphone ou navigateur doit être autorisé sur le PC avant d'accéder à Jimmy, puis il reste relié, même après un redémarrage. Nouveau mode « Lien permanent » : une adresse fixe sur ton domaine (tunnel Cloudflare à nom fixe, création guidée avec une seule connexion Cloudflare de ta part), utilisable en lien comme en QR code, et ajoutable à l'écran d'accueil du téléphone comme une appli.
+- **Reconnaissance vocale du téléphone aussi précise que sur le PC** : la voix enregistrée sur le téléphone est envoyée à Whisper sur le PC (même modèle précis que ton micro), au lieu de la dictée du navigateur.
+- Nouveaux tests : `test_mobile.py` (jumelage, autorisation, voix, lien permanent).
+
 ## 2.1.2
 - **Textes et boutons bien plus lisibles** : les gris secondaires (boutons du bas à gauche, recherche d'une discussion, titres de section, dossier de travail, heures, discussions pleines) étaient trop sombres, à 3,3:1 de contraste alors que le minimum lisible est 4,5:1. Ils sont maintenant à 6,7:1 ou plus, les boutons du bas sont presque blancs, et les petits textes passent de 11 à 12 px. Un test vérifie le contraste pour que ça ne se reproduise pas.
 - **Aurélie** : une demande de modification d'interface (boutons, couleurs, apparence...) va directement à Jimmy au lieu de partir en recherche web ; « recherche dans une discussion » ne lance plus de recherche Internet ; son message à Jimmy ne parle plus d'elle à la troisième personne et ne s'excuse plus.
