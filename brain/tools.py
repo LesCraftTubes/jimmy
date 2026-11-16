@@ -6,6 +6,8 @@ Un texte venu d'Internet, d'un fichier ou d'un journal ne peut donc jamais décl
 """
 from __future__ import annotations
 
+import fnmatch
+import os
 import re
 import shutil
 import subprocess
@@ -152,6 +154,65 @@ def _t_list(a, ctx):
     return f"[{p}]\n" + "\n".join(names[:200])
 
 
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist", ".idea", ".vscode", "$RECYCLE.BIN"}
+_TEXT_EXT = {".txt", ".md", ".py", ".js", ".ts", ".json", ".html", ".css", ".php", ".sk", ".yml", ".yaml", ".ini", ".cfg", ".csv", ".log",
+             ".sql", ".sh", ".ps1", ".bat", ".xml", ".toml", ".java", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".iss", ".spec"}
+
+
+def _walk(base: Path):
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")]
+        for f in files:
+            yield Path(root) / f
+
+
+def _t_find(a, ctx):
+    pattern = (a.get("motif") or "").strip() or "*"
+    if not any(c in pattern for c in "*?["):
+        pattern = f"*{pattern}*"
+    base = _safe_path(a.get("dossier", "") or ".", ctx)
+    if not base.is_dir():
+        return f"Dossier introuvable : {base}"
+    found = []
+    for f in _walk(base):
+        if fnmatch.fnmatch(f.name.lower(), pattern.lower()):
+            found.append(f)
+            if len(found) >= 60:
+                break
+    if not found:
+        return f"Aucun fichier ne correspond à « {pattern} » dans {base}."
+    return f"[{len(found)} fichier(s) dans {base}]\n" + "\n".join(str(f.relative_to(base)) for f in found)
+
+
+def _t_grep(a, ctx):
+    needle = (a.get("texte") or "").strip().lower()
+    if not needle:
+        return "Texte à chercher vide."
+    base = _safe_path(a.get("dossier", "") or ".", ctx)
+    if not base.is_dir():
+        return f"Dossier introuvable : {base}"
+    hits, scanned = [], 0
+    for f in _walk(base):
+        if f.suffix.lower() not in _TEXT_EXT or _SECRET_FILE.search(f.name):
+            continue
+        try:
+            if f.stat().st_size > 1_500_000:
+                continue
+            scanned += 1
+            if scanned > 4000:
+                break
+            for n, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if needle in line.lower():
+                    hits.append(f"{f.relative_to(base)}:{n}: {line.strip()[:160]}")
+                    if len(hits) >= 40:
+                        break
+        except OSError:
+            continue
+        if len(hits) >= 40:
+            break
+    return f"[{len(hits)} résultat(s), {scanned} fichiers lus]\n" + "\n".join(hits) if hits else f"« {needle} » introuvable ({scanned} fichiers lus dans {base})."
+
+
 def journal_text(ctx) -> str:
     """Ce que l'IA locale a déjà fait : Claude repart de là au lieu de tout refaire."""
     if not getattr(ctx, "journal", None):
@@ -265,6 +326,11 @@ def base_registry() -> Registry:
                _t_read, required=["chemin"], step="Lecture"))
     r.add(Tool("lister_dossier", "Liste le contenu d'un dossier du dossier de travail.",
                {"chemin": "chemin du dossier"}, _t_list, step="Dossier"))
+    r.add(Tool("chercher_fichiers", "Cherche des fichiers PAR NOM (joker * accepté) dans le dossier de travail ou un sous-dossier.",
+               {"motif": "nom ou morceau de nom, ex. shop.php ou *.sk", "dossier": "dossier où chercher (facultatif)"},
+               _t_find, required=["motif"], step="Fichiers"))
+    r.add(Tool("chercher_texte", "Cherche un mot ou une phrase DANS le contenu des fichiers texte / code du dossier de travail.",
+               {"texte": "texte à trouver", "dossier": "dossier où chercher (facultatif)"}, _t_grep, required=["texte"], step="Recherche"))
     r.add(Tool("ecrire_fichier", "Crée ou remplace un fichier texte dans le dossier de travail (une sauvegarde est faite avant).",
                {"chemin": "chemin du fichier", "contenu": "contenu complet du fichier"}, _t_write,
                required=["chemin", "contenu"], order=_ORDER_WRITE, step="Écriture"))

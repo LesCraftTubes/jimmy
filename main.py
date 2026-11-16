@@ -17,6 +17,12 @@ if "--mem" in sys.argv:
     sys.exit(jimmy_mem.main([a for a in sys.argv[1:] if a != "--mem"]))
 
 
+if "--local" in sys.argv:
+    # Claude demande un travail à l'IA locale (Jimmy.exe --local ask "question") : sans Python installé.
+    import local_server
+    sys.exit(local_server.main([a for a in sys.argv[1:] if a != "--local"]))
+
+
 if "--webtest" in sys.argv:
     # Vérifie que l'interface web démarre (utile pour tester une version compilée) : écrit webtest.txt dans le dossier de données.
     import webwindow

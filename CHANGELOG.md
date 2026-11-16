@@ -1,5 +1,20 @@
 ﻿# Historique des versions
 
+## 2.1.0
+- **L'IA locale et Jimmy se parlent vraiment** : l'IA locale a un prénom, **Aurélie** (modifiable : réglage `local_name`). Quand elle passe la main, elle écrit elle-même, avec son modèle, un vrai message à Jimmy (ce que tu veux, ce qu'elle a déjà fait, pourquoi elle passe la main) ; il s'affiche dans la discussion, puis Jimmy répond. Si son moteur est éteint, une phrase de secours prend le relais : le dialogue ne casse jamais.
+- **Jimmy peut demander du travail à Aurélie** : pour chercher un fichier, lire, lister un dossier ou chercher sur Internet, Claude appelle d'abord l'IA locale (commande gratuite, aucun token de ton abonnement). La question et la réponse s'affichent dans les deux sens. Elle n'a que des outils de lecture dans ce cas : le code lui interdit d'écrire ou de lancer des commandes.
+- **Étapes en vraies phrases** : « Je regarde la config utilisateur », « Je lis shop.php »... à la place des lignes techniques « Commande · ... ».
+- **« Hey Aurélie »** : elle répond quand tu dis son nom, avec **sa propre voix** (réglage `local_voice`, Éloïse par défaut) ; « Hey Jimmy » reste pour Claude.
+- **Cyberpsychose : les glitchs d'origine sont de retour** (morceaux d'écran décalés, double image cyan/magenta, déchirures, parasites, balayage au changement de discussion, orbe rouge qui scintille), seulement avec le thème Cyberpsychose ou quand le quota est presque épuisé.
+- **Menu des thèmes** : un seul bouton déroulant (style cyberpunk ou sobre, mode sombre ou clair, toutes les couleurs dont Cyberpsychose). Boutons principaux sans dégradé.
+- **Discussions** : les boutons renommer / supprimer ne recouvrent plus le nom, et le survol affiche la demande complète dans une infobulle.
+- **Carte « Limite atteinte »** : un vrai rectangle, qui reste à sa place dans la discussion même après un redémarrage.
+- **Messages d'état** (micro actif, reconnaissance vocale prête, chargement...) : petite boîte à droite, seulement au moment où ça se passe, plus dans la discussion.
+- **Plus d'autorisations ni de bip** : les anciens réglages « accepte les modifications » passent une fois pour toutes en « aucune demande » (les garde-fous `--force`, `DROP`... restent).
+- **Dictée** : une phrase reconnue se termine toujours par un point. Le bouton Parler s'allume aussi pendant que Jimmy travaille. **Ctrl+V** d'une capture d'écran (ou de fichiers copiés) la joint au message.
+- **Recherche de fichiers pour l'IA locale** (par nom et dans le contenu), et consignes d'économie pour Claude : chercher d'abord, lire seulement l'extrait utile, modifier sans tout réécrire.
+- Nouveaux tests : `test_dialogue.py`, `test_aurelie.py`, `test_paste.py`.
+
 ## 2.0.4
 - **L'IA locale peut vraiment chercher sur Internet** : sa recherche ne renvoyait rien (DuckDuckGo bloque les programmes, Bing leur sert des résultats faux). Elle passe maintenant par le navigateur intégré de Jimmy, **invisible** (aucun onglet ne s'ouvre dans ton navigateur, rien n'est gardé), avec de vrais résultats Bing / DuckDuckGo, leurs extraits de texte et le début de la page. L'API de Wikipédia et DuckDuckGo en direct servent de secours. Testé pour de vrai : « hauteur de la tour Eiffel » donne 330 m, avec la source.
 - **Relais sans refaire le travail** : l'IA locale tient un journal de ce qu'elle a déjà fait (recherches, fichiers lus...) et le transmet à Claude avec la consigne de reprendre là où elle s'est arrêtée, sans refaire les mêmes recherches. Dans la discussion, la ligne verte de passage dit combien d'étapes sont transmises, et la réponse de Claude est étiquetée « CLAUDE · RELAIS » en violet : on voit qui parle.

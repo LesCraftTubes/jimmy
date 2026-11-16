@@ -246,3 +246,52 @@ button#btnUpdate[data-state="downloading"] svg, button#btnUpdate[data-state="che
 [data-look="cyber"] .bar i { box-shadow: 0 0 8px currentColor; }
 [data-look="cyber"] ::selection { background: color-mix(in srgb, var(--neon-b) 45%, transparent); }
 @media (prefers-reduced-motion: reduce) { [data-look="cyber"] .brand-text b { animation: none; } }
+
+/* ------------------------------------------------------------ boutons SANS dégradé : plein et net (sobre), contour néon (cyberpunk) */
+button.primary { background: var(--accent); background-image: none; border: 1px solid color-mix(in srgb, var(--accent) 60%, #fff); box-shadow: none; }
+button.primary:hover { filter: brightness(1.1); }
+[data-look="cyber"] button.primary { background: transparent; color: var(--neon-a); border: 1.5px solid var(--neon-a); border-radius: 3px; clip-path: none;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--neon-a) 70%, transparent); box-shadow: 0 0 14px -5px var(--neon-a), inset 0 0 14px -9px var(--neon-a); }
+[data-look="cyber"] button.primary:hover { background: var(--neon-a); color: #07040f; text-shadow: none; filter: none; }
+
+/* ------------------------------------------------------------ discussions : les boutons ne recouvrent plus le texte, infobulle complète */
+.session .acts { top: 50%; right: 8px; transform: translateY(-50%); background: color-mix(in srgb, var(--elev2) 94%, transparent); border-radius: 8px; padding: 1px; }
+.session:hover .t, .session:hover .w { padding-right: 60px; }
+#sessTip { position: fixed; z-index: 120; max-width: 420px; padding: 10px 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border2);
+  border-radius: 8px; box-shadow: var(--shadow); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; pointer-events: none; }
+#sessTip[hidden] { display: none; }
+#side { position: relative; z-index: 40; }
+
+/* ------------------------------------------------------------ menu des thèmes */
+.theme-menu { left: -6px; right: auto; width: 260px; }
+.theme-menu .opts { display: flex; gap: 6px; }
+.theme-menu .opts button { flex: 1; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); font-weight: 550; font-size: 13px; }
+.theme-menu .opts button:hover { background: var(--elev); color: var(--text); }
+.theme-menu .opts button.on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.theme-menu .opts[hidden], .theme-menu .menu-title[hidden] { display: none; }
+.accents { display: flex; flex-direction: column; gap: 3px; }
+.accents .acc { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; color: var(--muted); text-align: left; }
+.accents .acc:hover { background: var(--elev); color: var(--text); }
+.accents .acc.on { color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.accents .acc i { width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: 0 0 8px -1px currentColor; }
+
+/* ------------------------------------------------------------ carte « limite atteinte » */
+.limitcard { display: flex; gap: 14px; align-items: flex-start; max-width: 640px; margin: 18px auto; padding: 16px 18px; border: 1px solid var(--warn); border-left: 5px solid var(--warn);
+  border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); }
+.limitcard svg { width: 26px; height: 26px; color: var(--warn); margin-top: 2px; }
+.limitcard b { display: block; font-size: 16px; letter-spacing: .3px; color: var(--warn); }
+.limitcard span { display: block; margin: 4px 0; font-size: 14px; color: var(--text); }
+.limitcard small { color: var(--muted); font-size: 12px; }
+[data-look="cyber"] .limitcard { border-radius: 3px; box-shadow: 0 0 22px -8px var(--warn); }
+
+/* ------------------------------------------------------------ cyberpsychose : plus de lignes, titre qui saccade */
+body.psy .brand-text b { animation-duration: 1.7s; }
+[data-look="cyber"] body.psy::after { background: repeating-linear-gradient(0deg, rgba(255,30,70,.07) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 45%, rgba(255,20,60,.16) 100%); }
+
+/* ------------------------------------------------------------ dialogue IA locale <-> Jimmy */
+.msg.dialog { margin-left: 26px; padding-left: 14px; border-left: 2px solid var(--c, var(--accent)); }
+.msg.dialog.from-jimmy { --c: var(--accent); }
+.msg.dialog .who b { letter-spacing: 1.5px; }
+.msg.dialog .who em { font-style: normal; font-size: 11px; color: var(--faint); margin-left: 4px; letter-spacing: .5px; }
+.msg.dialog .body { color: var(--text); font-size: calc(var(--chat-size) - 1px); }
+.steps .lines .say { color: var(--muted); font-family: var(--font); font-size: 13px; line-height: 1.45; }

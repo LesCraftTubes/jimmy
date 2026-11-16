@@ -154,6 +154,37 @@ def set_name(session_id: str, name: str, manual: bool = True) -> str:
     return name
 
 
+_FIRST = {}
+
+
+def first_request(workdir: str, session_id: str, maxc: int = 700) -> str:
+    """Texte COMPLET de la première demande d'une discussion (les titres automatiques sont coupés à 60 caractères)."""
+    if session_id in _FIRST:
+        return _FIRST[session_id]
+    path = project_dir(workdir) / f"{session_id}.jsonl"
+    out = ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") != "user":
+                    continue
+                content = (d.get("message") or {}).get("content")
+                if _user_text(content, raw=True).startswith(RESUME_MARK):
+                    continue
+                text = _user_text(content)
+                if text:
+                    out = " ".join(text.split())[:maxc]
+                    break
+    except OSError:
+        return ""
+    _FIRST[session_id] = out
+    return out
+
+
 def ensure_names(listed) -> None:
     """Enregistre un titre (tiré de la première demande) pour les discussions qui n'ont pas encore de nom :
     à partir de là il est durable, renommable, et Jimmy ne le change plus tout seul."""

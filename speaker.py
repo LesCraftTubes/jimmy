@@ -276,10 +276,11 @@ class Speaker(QObject):
         self._piper_cache = {}
         self._piper_lock = threading.Lock()
         self.glitch_level = 0.0   # cyberpsychose : 0 = voix normale (réglé par la fenêtre)
+        self.voice_override = None   # nom d'une voix à utiliser pour UNE lecture (la voix de l'IA locale)
         self._gen = 0   # numéro de la lecture en cours (une ancienne lecture s'arrête d'elle-même)
 
     def preset(self):
-        name = resolve_preset(self.cfg.get("voice_preset"))
+        name = resolve_preset(self.voice_override or self.cfg.get("voice_preset"))
         if name in VOICE_PRESETS:
             voice, rate, pitch, effect = VOICE_PRESETS[name]
         else:

@@ -582,6 +582,14 @@ def describe_tool(name: str, inp) -> str:
     return f"{label} · {detail}" if detail else label
 
 
+def ensure_final_punct(text: str) -> str:
+    """Ajoute un point si la phrase reconnue n'en a pas (sinon deux phrases dictées à la suite se collent sans séparation)."""
+    t = (text or "").rstrip()
+    if t and t[-1] not in ".!?…:;":
+        t += "."
+    return t
+
+
 def steps_from_event(evt) -> list:
     """Étapes à afficher pour un événement `claude -p --output-format stream-json`."""
     if not isinstance(evt, dict) or evt.get("type") != "assistant":

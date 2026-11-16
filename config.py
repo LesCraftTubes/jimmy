@@ -146,6 +146,8 @@ DEFAULTS = {
     "ui": "web",                   # interface : web (page HTML/CSS moderne) ou classic (ancienne fenêtre)
     # IA locale (facultative) : un moteur local (LM Studio, Bionic, Ollama) répond aux demandes simples,
     # va sur Internet, lit les fichiers, et passe la main à Claude quand ça dépasse ses moyens.
+    "local_name": "Aurélie",       # le prénom de l'IA locale (elle répond à « Hey Aurélie » et parle avec sa propre voix)
+    "local_voice": "Éloïse",       # la voix de l'IA locale (un nom de la liste des voix)
     "haiku_helper": True,          # Claude délègue la recherche et les tâches simples à Haiku (économise le quota)
     "local_enabled": False,
     "route": "claude",             # qui répond : claude, local, auto (l'IA locale décide, Claude en renfort)
@@ -170,8 +172,23 @@ class Config:
                 data.update(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, ValueError):
                 pass
+        migrated = False
+        if existed and not data.get("autonomy_migrated"):
+            # Accord permanent de l'utilisateur : plus aucune fenêtre d'autorisation. Fait une seule fois ; le réglage reste libre après.
+            data["autonomy_migrated"] = True
+            if data.get("permission_mode") != "bypassPermissions":
+                data["permission_mode"] = "bypassPermissions"
+            migrated = True
+        if existed and not data.get("aurelie_added"):
+            data["aurelie_added"] = True
+            words = list(data.get("wake_words") or [])
+            for w in ("hey aurélie", "aurélie"):
+                if w not in [x.lower() for x in words]:
+                    words.append(w)
+            data["wake_words"] = words
+            migrated = True
         cfg = cls(data, path)
-        if not existed:
+        if not existed or migrated:
             cfg.save()
         return cfg
 

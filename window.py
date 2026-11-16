@@ -288,6 +288,7 @@ class _Signals(QObject):
     remote_switch = Signal(str)
     local_reply = Signal(str, str)   # réponse de l'IA locale, résumé à passer à Claude (ou vide)
     info = Signal(str)               # message système venu d'un fil de travail
+    dialog = Signal(str, str, str)   # de (local|jimmy), à (local|jimmy), texte : l'IA locale et Jimmy se parlent
 
 
 class JimmyWindow(QMainWindow):
@@ -309,6 +310,7 @@ class JimmyWindow(QMainWindow):
         self.sig.remote_switch.connect(self._on_remote_switch)
         self.sig.local_reply.connect(self._on_local_reply)
         self.sig.info.connect(self.add_system)
+        self.sig.dialog.connect(self._on_dialog)
         self._local_forced = False
         self._local_reason = ""
         self._local_ctx = []        # ce que l'IA locale a dit : Claude le saura à son prochain message
@@ -328,6 +330,11 @@ class JimmyWindow(QMainWindow):
         self._long_retry = False
 
         self.bridge = ClaudeBridge(cfg)
+        from local_server import LocalServer
+        self._local_lock = threading.Lock()
+        self._relay_msg = ""
+        self._lserver = LocalServer(self._delegate)          # Jimmy (Claude) peut demander un travail de lecture à l'IA locale
+        self.bridge.extra_env = self._lserver.env()
         self.bridge.on_step = self.sig.step.emit
         self.bridge.perm_ask = self._ask_permission
         self.speaker = Speaker(cfg)
@@ -1187,7 +1194,7 @@ class JimmyWindow(QMainWindow):
         if role == "user":
             self.chat.add_user(text)
         elif role == "local":
-            self.chat.add_assistant(text, "IA LOCALE", "#4ade80")
+            self.chat.add_assistant(text, f"{self._local_name().upper()} \u00b7 IA LOCALE", "#4ade80")
         else:
             self.chat.add_assistant(text)
 
@@ -1208,6 +1215,8 @@ class JimmyWindow(QMainWindow):
         """Étape de travail en direct : écrite dans la discussion et dans la ligne d'état."""
         if not self.thinking:
             return
+        from brain.dialogue import humanize_step
+        text = humanize_step(text)           # de vraies phrases, pas des lignes techniques
         self._remote_emit({"type": "step", "text": text})
         shown = text if len(text) <= 80 else text[:79] + "…"
         self.status_lbl.setText(f"Jimmy travaille…  ·  {shown}")
@@ -1422,28 +1431,49 @@ class JimmyWindow(QMainWindow):
         self._local_last_q = text
         threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
 
+    def _ensure_local_agent(self) -> str:
+        """"" si l'IA locale est prête, sinon la raison."""
+        if self.local_agent is None:
+            from brain.agent import LocalAgent
+            self.local_agent = LocalAgent(self.cfg, on_step=self.sig.step.emit)
+        if not self.local_agent.engine:
+            return self.local_agent.ready()
+        return ""
+
+    def _local_name(self) -> str:
+        return str(self.cfg.get("local_name") or "Aurélie")
+
+    def _relay_text(self, text: str, reason: str, journal=None) -> str:
+        """L'IA locale écrit elle-même son message à Jimmy (avec son modèle si elle tourne, sinon une phrase de secours)."""
+        from brain import dialogue
+        engine = self.local_agent.engine if self.local_agent is not None else None
+        return dialogue.message_to_jimmy(engine, text, journal or [], reason, self._local_name())
+
     def _work_local(self, text: str) -> None:
+        auto = self._route() == "auto" and not self._local_forced
         try:
-            if self.local_agent is None:
-                from brain.agent import LocalAgent
-                self.local_agent = LocalAgent(self.cfg, on_step=self.sig.step.emit)
-            if not self.local_agent.engine:
+            if self.local_agent is None or not self.local_agent.engine:
                 self.sig.step.emit("IA locale · démarrage du moteur")
-                why = self.local_agent.ready()
-                if why:
-                    if self._route() == "auto" and not self._local_forced:
-                        # Mode Auto : un moteur coupé ne bloque jamais, Claude répond à sa place.
-                        self._local_reason = "indisponible"
-                        self.sig.local_reply.emit("", f"{text}\n\n(L'IA locale est indisponible : {why})")
-                    else:
-                        self.sig.failure.emit("IA locale indisponible : " + why)
-                    return
-            reply, handoff = self.local_agent.run(text)
+            why = self._ensure_local_agent()
+            if why:
+                if auto:
+                    # Mode Auto : un moteur coupé ne bloque jamais, Claude répond à sa place.
+                    self._local_reason = "indisponible"
+                    self._relay_msg = self._relay_text(text, "indisponible")
+                    self.sig.local_reply.emit("", f"{text}\n\n(L'IA locale est indisponible : {why})")
+                else:
+                    self.sig.failure.emit("IA locale indisponible : " + why)
+                return
+            with self._local_lock:
+                reply, handoff = self.local_agent.run(text)
             self._local_reason = self.local_agent.last_reason
+            if handoff and auto:
+                self._relay_msg = self._relay_text(text, self._local_reason, self.local_agent.last_journal)
             self.sig.local_reply.emit(reply, handoff)
         except Exception as e:  # noqa: BLE001
-            if self._route() == "auto" and not self._local_forced:
+            if auto:
                 self._local_reason = "erreur"
+                self._relay_msg = self._relay_text(text, "erreur")
                 self.sig.local_reply.emit("", f"{text}\n\n(L'IA locale a planté : {e})")
             else:
                 self.sig.failure.emit(f"IA locale : {e}")
@@ -1459,33 +1489,84 @@ class JimmyWindow(QMainWindow):
         self.thinking = False
         reason = getattr(self, "_local_reason", "")
         auto = self._route() == "auto" and not getattr(self, "_local_forced", False)
-        # En mode Auto, un refus ou du vide n'est pas montré : l'utilisateur voit seulement le passage à Claude puis sa réponse.
-        if text and not (handoff and auto and reason in ("refus", "indisponible", "erreur")):
+        # En mode Auto, un refus ou du vide n'est pas montré : l'utilisateur voit l'IA locale parler à Jimmy, puis la réponse de Jimmy.
+        show = bool(text) and not (handoff and auto and reason in ("refus", "indisponible", "erreur"))
+        speak = bool(show and not handoff and self.btn_voice.isChecked() and not self._remote_turn)
+        if show and not speak:
             self._remote_emit({"type": "message", "role": "assistant", "text": text})
             self.add_message("local", text)
         self._last_reply = ""
         if text and not handoff:
             self._bump_local("local")
             self._local_ctx = (self._local_ctx + [f"à « {self._local_last_q[:100]} » elle a répondu : {text[:240]}"])[-3:]
+        if speak:
+            # L'IA locale parle avec SA voix (le texte s'écrit au rythme de la voix, comme pour Jimmy)
+            self._remote_emit({"type": "message", "role": "assistant", "text": text})
+            self.speaker.voice_override = str(self.cfg.get("local_voice") or "Éloïse")
+            self.busy = True
+            self.listener.pause()
+            self._last_reply = text
+            self._live_text = text
+            self.chat.next_label = (f"{self._local_name().upper()} \u00b7 IA LOCALE", "#4ade80")
+            self.chat.begin_live()
+            self.speaking = True
+            self.set_state("speaking")
+            self.speaker.speak(text)
+            return
         if handoff and auto:
             self._bump_local("relay")
-
-            why = self._HANDOFF_WHY.get(reason, "elle a besoin de Claude")
-            done = handoff.split("DÉJÀ FAIT", 1)[1].count("\n- ") if "DÉJÀ FAIT" in handoff else 0
-            self.add_system(f"↪ L'IA locale passe la main à Claude ({why})."
-                            + (f" Elle lui transmet ses {done} étape(s) déjà faite(s) : il reprend là où elle s'est arrêtée." if done else ""))
+            msg = getattr(self, "_relay_msg", "") or ""
+            if not msg:
+                from brain import dialogue
+                msg = dialogue.fallback_message(self._local_last_q, [], reason, self._local_name())
+            self._relay_msg = ""
+            self.add_dialog("local", "jimmy", msg)        # l'IA locale PARLE à Jimmy, en vraies phrases
             self._finish()
 
             def go() -> None:
                 self._force_claude = True          # le message suivant part chez Claude quoi que dise le sélecteur
-                self.chat.next_label = ("CLAUDE · RELAIS", "#a78bfa")      # on voit que c'est lui qui parle maintenant
-                self.submit("L'IA locale te transmet cette demande :\n" + handoff, echo=False)
+                self.submit(f"{self._local_name()} (l'IA locale) te dit : « {msg} »\n\n" + handoff, echo=False)
             QTimer.singleShot(0, go)
             return
         if handoff:
-            self.add_system("↪ L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
+            self.add_system("\u21aa L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
                             "ou écris « @claude » devant ta demande.")
         self._finish()
+
+    # ------------------------------------------------------------------ dialogue IA locale <-> Jimmy
+    def add_dialog(self, frm: str, to: str, text: str) -> None:
+        name = self._local_name()
+        names = {"local": name, "jimmy": "Jimmy"}
+        self._remote_emit({"type": "message", "role": "assistant", "text": f"{names[frm]} \u2192 {names[to]} : {text}"})
+        if hasattr(self.chat, "add_dialog"):
+            self.chat.add_dialog(frm, to, names[frm], names[to], text, "#4ade80" if frm == "local" else "")
+        else:
+            self.add_message("assistant", f"{names[frm]} \u2192 {names[to]} : {text}")
+
+    def _on_dialog(self, frm: str, to: str, text: str) -> None:
+        self.add_dialog(frm, to, text)
+
+    def _delegate(self, question: str) -> str:
+        """Jimmy (Claude) demande un travail de LECTURE à l'IA locale (chercher un fichier, le web...) : gratuit pour l'abonnement.
+        Les deux messages (la demande, puis la réponse) s'affichent dans la discussion."""
+        if not self.cfg.get("local_enabled", False):
+            return "L'IA locale est désactivée : fais ce travail toi-même."
+        self.sig.dialog.emit("jimmy", "local", question)
+        try:
+            with self._local_lock:
+                why = self._ensure_local_agent()
+                if why:
+                    ans = f"Je suis indisponible ({why}). Fais-le toi-même."
+                else:
+                    self.local_agent.history = self.local_agent.history[-6:]
+                    reply, _handoff = self.local_agent.run(question, readonly=True)
+                    from brain.agent import is_failure
+                    ans = reply if not is_failure(reply) else f"Je n'ai pas réussi ({reply[:200]}). Fais-le toi-même."
+        except Exception as e:  # noqa: BLE001
+            ans = f"J'ai rencontré une erreur : {e}. Fais-le toi-même."
+        self.sig.dialog.emit("local", "jimmy", ans)
+        self._bump_local("delegated")
+        return ans
 
     def _bump_local(self, key: str) -> None:
         st = dict(self.cfg.get("local_stats") or {})
@@ -1590,6 +1671,7 @@ class JimmyWindow(QMainWindow):
             self._finish()
 
     def _on_speech_done(self) -> None:
+        self.speaker.voice_override = None          # la voix de l'IA locale ne vaut que pour sa réplique
         if self._live_text is not None:
             self.chat.end_live(self._live_text)
             self._live_text = None
@@ -1641,6 +1723,11 @@ class JimmyWindow(QMainWindow):
     def on_heard(self, text: str) -> None:
         """Phrase reconnue au micro : envoyée directement, ou écrite dans la zone en mode Dictée."""
         self.input.end_preview()
+        from textutils import ensure_final_punct
+        text = ensure_final_punct(text)
+        if getattr(self.listener, "last_wake", "") == "local" and self.cfg.get("local_enabled", False):
+            text = "@local " + text          # « Hey Aurélie ... » : c'est elle qui répond
+        self.listener.last_wake = ""
         if self.btn_dict.isChecked() and not self.bridge.pending_tools:
             self.input.append_text(text)
             self.listener.resume()

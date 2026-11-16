@@ -141,6 +141,7 @@ class Listener(QObject):
         self._flush = threading.Event()   # « valide ce qui a été dit » (2e clic sur Parler)
         self._muted = threading.Event()   # micro coupé : rien n'est écouté, même pas « Jimmy »
         self._wake_on = bool(cfg.get("wake_words_enabled", True))
+        self.last_wake = ""          # "local" si tu as dit « Hey Aurélie », "claude" si « Hey Jimmy »
         # ~1 min de son en attente : rien n'est perdu pendant qu'une phrase est transcrite.
         self._q = queue.Queue(maxsize=2000)
         self._thread = None
@@ -584,6 +585,8 @@ class Listener(QObject):
 
         words = self.cfg.get("wake_words") or ["jimmy"]
         woke, rest = extract_wake(text, words)
+        if woke:
+            self.last_wake = self._wake_kind(text, words)
         if mode == "wake":
             if not woke:
                 return mode, cmd_started
@@ -641,6 +644,16 @@ class Listener(QObject):
             return True
         except Exception:  # noqa: BLE001
             return False
+
+    @staticmethod
+    def _wake_kind(text: str, words) -> str:
+        """Quel mot d'éveil a été dit : le prénom de l'IA locale (Aurélie) ou celui de Jimmy."""
+        from textutils import fold
+        for w in words:
+            ok, _ = extract_wake(text, [w])
+            if ok:
+                return "local" if fold(str(w)).replace(" ", "").endswith("aurelie") else "claude"
+        return "claude"
 
     def _vocab(self) -> str:
         """Mots à privilégier : mots d'éveil, vocabulaire de l'utilisateur (réglage « vocab », séparé par des virgules)."""

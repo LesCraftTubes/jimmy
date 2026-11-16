@@ -93,6 +93,7 @@ SYSTEM_PROMPT = (
 HAIKU_HINT = (
     " Économie : pour chercher des fichiers, explorer le code, lire, lister ou toute tâche simple, délègue à un "
     "sous-agent Haiku (outil Agent, type Explore, ou model haiku) ; garde ton modèle pour raisonner et modifier. "
+    "Cherche d'abord (Grep) puis lis seulement l'extrait utile ; modifie avec Edit, sans réécrire un fichier entier. "
 )
 # Ajouté seulement en mode autonomie (permission_mode = bypassPermissions).
 AUTONOMY_PROMPT = (
@@ -193,6 +194,8 @@ class ClaudeBridge:
         self.blocked_tools = []
         # Outils autorisés oralement pour cette session de Jimmy.
         self.session_tools = []
+        # Variables données à Claude pour qu'il puisse demander un travail à l'IA locale (voir local_server.py)
+        self.extra_env = {}
         # Étapes en direct (lecture, modification, commande...) : appelé depuis le thread de travail.
         self.on_step = None
         # % de la limite de session (mis à jour par la fenêtre) pour le mode économie auto.
@@ -343,11 +346,22 @@ class ClaudeBridge:
             return self.cfg.get("eco_model")
         return self.cfg.get("model") or ""
 
+    def _local_hint(self) -> str:
+        """Une phrase : Claude peut demander la recherche et la lecture à l'IA locale (gratuit pour l'abonnement)."""
+        if not (self.extra_env.get("JIMMY_LOCAL_PORT") and self.cfg.get("local_enabled", False)):
+            return ""
+        if getattr(sys, "frozen", False):
+            run = f"{sys.executable} --local ask"
+        else:
+            run = f"{sys.executable} {app_dir() / 'jimmy_local.py'} ask"
+        return (f" Aide gratuite : pour chercher un fichier, lire un fichier, lister un dossier ou chercher sur Internet, demande d'abord "
+                f"à l'IA locale avec {run} \"ta question\" (elle ne consomme pas ton quota) ; garde pour toi le raisonnement et les modifications. ")
+
     def _build_cmd(self, cli: str, resume: bool) -> list:
         style = LONG_STYLE if self.cfg.get("long_mode") else SHORT_STYLE
         auto = self.cfg.get("permission_mode") == "bypassPermissions"
         system = (IDENTITY + style + SPEECH_RULES + SYSTEM_PROMPT + (AUTONOMY_PROMPT if auto else "")
-                  + (HAIKU_HINT if self.cfg.get("haiku_helper", True) else "") + _mem_hint() + _music_hint() + _volume_hint() + _discord_hint())
+                  + (HAIKU_HINT if self.cfg.get("haiku_helper", True) else "") + self._local_hint() + _mem_hint() + _music_hint() + _volume_hint() + _discord_hint())
         projects = [" ".join(l.split()) for l in str(self.cfg.get("projects_text", "")).splitlines() if l.strip()]
         if projects:
             system += (" Carte des dossiers de l'utilisateur (va directement au bon endroit, sans explorer "
@@ -462,6 +476,7 @@ class ClaudeBridge:
                     encoding="utf-8",
                     errors="replace",
                     creationflags=flags,
+                    env={**os.environ, **self.extra_env},
                 )
             finally:
                 out_f.close()

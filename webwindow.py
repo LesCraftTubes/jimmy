@@ -16,7 +16,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QRectF, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
@@ -29,7 +29,7 @@ import window as W
 from config import ACCENTS, app_dir, data_dir
 from speaker import DEFAULT_PRESET, VOICE_PRESETS, resolve_preset
 from version import __version__
-from widgets import THEME
+from widgets import THEME, SweepOverlay
 
 TOGGLES = ("voice_enabled", "wake_words_enabled", "auto_relisten", "long_mode", "dictation")
 
@@ -101,9 +101,19 @@ class Bridge(QObject):
     def send(self, text: str) -> None:
         self.win.submit(self.win.compose_attachments(text))
 
+    @Slot(str)
+    def setAccent(self, name: str) -> None:
+        if name in ACCENTS:
+            self.win.cfg.set("accent", name)
+            self._later(lambda: (self.win._apply_look(), self.win._apply_psychosis()))
+
     @Slot()
     def checkUpdate(self) -> None:
         self.win.check_update_now()
+
+    @Slot()
+    def pasteFiles(self) -> None:
+        self.win.paste_clipboard()
 
     @Slot()
     def pickFiles(self) -> None:
@@ -292,6 +302,9 @@ class _Chat:
 
     def add_system(self, text):
         self.emit({"t": "system", "text": text})
+
+    def add_dialog(self, frm, to, who, whom, text, color=""):
+        self.emit({"t": "dialog", "from": frm, "to": to, "who": who, "whom": whom, "text": text, "color": color})
 
     def add_step(self, text, first=False):
         self.emit({"t": "step", "text": text, "first": bool(first)})
@@ -603,6 +616,8 @@ class WebJimmyWindow(W.JimmyWindow):
                     w.installEventFilter(self._dropfilter)
         view.loadFinished.connect(lambda ok: (hook_drops(), QTimer.singleShot(1500, hook_drops)))
         self.setCentralWidget(view)
+        self.sweep = SweepOverlay(self)           # glitchs d'origine par-dessus toute la fenêtre (Cyberpsychose uniquement)
+        QTimer.singleShot(2500, self._arm_glitch)
         view.setUrl(QUrl.fromLocalFile(os.path.join(web_dir(), "index.html")))
         self._place_window()
 
@@ -625,7 +640,8 @@ class WebJimmyWindow(W.JimmyWindow):
             "toggles": {k: bool(cfg.get(k, d)) for k, d in (("voice_enabled", True), ("wake_words_enabled", True),
                                                            ("auto_relisten", True), ("long_mode", False), ("dictation", False))},
             "local_enabled": bool(cfg.get("local_enabled", False)), "route": cfg.get("route", "claude"),
-            "wake_label": self._wake_label(), "psy": self._psy_level() > 0,
+            "wake_label": self._wake_label(), "psy": self._psy_level() > 0, "psy_level": float(self._psy_level()),
+            "accents": [[n, a, b] for n, (a, b) in ACCENTS.items()], "accent_name": cfg.get("accent"),
         }})
 
     # ---- bouton « Vérifier les mises à jour » : cherche, et s'il y en a une, télécharge et lance l'installation tout de suite
@@ -673,13 +689,25 @@ class WebJimmyWindow(W.JimmyWindow):
         updater.run_installer(Path(path))
         QApplication.quit()
 
+    # ---- messages système : seuls les événements importants restent dans la discussion, le reste s'affiche en petite boîte à droite
+    _PERSIST = ("\u21aa", "Discussion pleine", "Discussion presque pleine", "La tâche lancée", "Une tâche de Claude",
+                "Ménage", "Discussion supprimée", "messages plus anciens")
+
+    def add_system(self, text: str) -> None:
+        self._remote_emit({"type": "system", "text": text})
+        if text.startswith(self._PERSIST):
+            self.chat.add_system(text)
+        else:
+            self.jsb.emit({"t": "toast", "text": text})
+
     # ---- à quoi sert l'IA locale : compteurs visibles dans la barre latérale
     def _push_local_stats(self) -> None:
         if not hasattr(self, "jsb"):
             return
         st = self.cfg.get("local_stats") or {}
         self.jsb.emit({"t": "localstats", "local": int(st.get("local", 0)), "relay": int(st.get("relay", 0)),
-                       "direct": int(st.get("direct", 0))})
+                       "direct": int(st.get("direct", 0)), "delegated": int(st.get("delegated", 0)),
+                       "name": self._local_name()})
 
     # ---- pièces jointes : copiées dans un dossier de Jimmy, jointes au message (le chemin reste dans la discussion)
     @staticmethod
@@ -748,6 +776,26 @@ class WebJimmyWindow(W.JimmyWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, "Joindre des fichiers")
         self.attach_paths(paths)
 
+    def paste_clipboard(self) -> None:
+        """Ctrl+V : une image du presse-papiers (capture d'écran) ou des fichiers copiés deviennent des pièces jointes."""
+        from PySide6.QtGui import QGuiApplication
+        cb = QGuiApplication.clipboard()
+        md = cb.mimeData()
+        if md is None:
+            return
+        paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile()] if md.hasUrls() else []
+        if paths:
+            self.attach_paths(paths)
+            return
+        if md.hasImage():
+            img = cb.image()
+            if not img.isNull():
+                target = self._unique(self._attach_dir(), time.strftime("capture-%Y%m%d-%H%M%S.png"))
+                if img.save(str(target), "PNG"):
+                    self._attached([{"name": target.name, "path": str(target), "size": target.stat().st_size}])
+                    return
+        self.jsb.emit({"t": "toast", "text": "Rien à coller : le presse-papiers ne contient ni image ni fichier.", "err": True})
+
     def drop_data(self, name: str, b64: str) -> None:
         """Repli : fichier déposé dont le chemin n'est pas connu, reçu en base64 depuis la page."""
         try:
@@ -805,16 +853,27 @@ class WebJimmyWindow(W.JimmyWindow):
         self._refresh_ctx()
 
     def _arm_glitch(self) -> None:
-        pass            # pas de glitchs dans l'interface web : sobre
+        if hasattr(self, "bridge") and hasattr(self, "_glitch_timer"):
+            W.JimmyWindow._arm_glitch(self)
 
     def _micro_glitch(self) -> None:
-        pass
+        """Mêmes glitchs que l'ancien Jimmy (morceaux d'écran décalés, double image cyan/magenta, déchirures, parasites),
+        seulement quand le thème Cyberpsychose est choisi (ou quand le quota est presque épuisé)."""
+        level = self._psy_level() if hasattr(self, "bridge") else 0.0
+        if level > 0 and self.cfg.get("effects", True) and self.isVisible() and not self.isMinimized():
+            self.sweep.play("micro", QRectF(self.rect()), 1.0 + 0.9 * level)
+        self._arm_glitch()
 
     def _apply_psychosis(self) -> None:
+        level = float(self._psy_level()) if hasattr(self, "bridge") else 0.0
+        if hasattr(self, "speaker"):
+            self.speaker.glitch_level = level if self.cfg.get("voice_glitch", True) else 0.0
         if hasattr(self, "jsb"):
-            self.jsb.emit({"t": "psy", "level": float(self._psy_level())})
+            self.jsb.emit({"t": "psy", "level": level})
 
     def _swap_anim(self) -> None:
+        if self._psy_level() > 0 and self.cfg.get("effects", True):
+            self.sweep.play("switch", QRectF(self.view.geometry()), 1.0)       # balayage + glitch comme avant
         self.jsb.emit({"t": "swap"})
 
     def _chat_region(self):
@@ -835,7 +894,10 @@ class WebJimmyWindow(W.JimmyWindow):
         full = sessions.full_ids()
         listed = sessions.list_sessions(wd)
         sessions.ensure_names(listed)
-        cache = [{"id": sid, "title": title, "when": when, "full": sid in full} for sid, title, when in listed]
+        names = sessions.load_names()
+        cache = [{"id": sid, "title": title, "when": when, "full": sid in full,
+                  "tip": title if (names.get(sid) or {}).get("manual") else (sessions.first_request(wd, sid) or title)}
+                 for sid, title, when in listed]
         self._sessions_cache = cache
         self.jsb.emit({"t": "sessions", "items": cache, "current": self.bridge.session_id or ""})
         self._remote_emit(self._sessions_event())

@@ -19,8 +19,18 @@
           <circle cx="24" cy="24" r="20" fill="none" stroke="url(#lg)" stroke-width="3.2"/><circle cx="24" cy="24" r="8" fill="url(#lg)"/></svg>
       </div>
       <div class="brand-text"><b>Jimmy</b><span id="version">version</span></div>
-      <button class="icon-btn" id="btnLook" title="Style : cyberpunk / sobre" aria-label="Style"><svg viewBox="0 0 24 24"><path d="M12 2.5l8.5 4.9v9.2L12 21.5l-8.5-4.9V7.4z"/><path d="M9 9l3 3-3 3"/></svg></button>
-      <button class="icon-btn" id="btnTheme" title="Thème clair / sombre" aria-label="Thème"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      <div class="menu-wrap" id="themeWrap">
+        <button class="icon-btn" id="btnThemeMenu" title="Thèmes : style, mode, couleur" aria-label="Thèmes"><svg viewBox="0 0 24 24"><path d="M12 2.5l8.5 4.9v9.2L12 21.5l-8.5-4.9V7.4z"/><circle cx="9.5" cy="10.5" r="1"/><circle cx="14.5" cy="10.5" r="1"/><circle cx="12" cy="15" r="1"/></svg></button>
+        <div class="menu theme-menu" id="themeMenu" hidden>
+          <div class="menu-title">Style</div>
+          <div class="opts" id="lookOpts"><button data-look="cyber">Cyberpunk</button><button data-look="sobre">Sobre</button></div>
+          <div class="menu-title" id="modeTitle">Mode</div>
+          <div class="opts" id="modeOpts"><button data-mode="dark">Sombre</button><button data-mode="light">Clair</button></div>
+          <div class="menu-title">Couleur</div>
+          <div class="accents" id="accentOpts"></div>
+        </div>
+      </div>
+      <button class="icon-btn" id="btnTheme" hidden title="Thème clair / sombre" aria-label="Thème"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
     </div>
 
     <button class="primary wide" id="btnNew"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle discussion</button>
@@ -113,6 +123,7 @@
 </div>
 
 <div id="dropHint" hidden><div>Dépose les fichiers ici pour les joindre au message</div></div>
+<div id="sessTip" hidden></div>
 <div id="toasts"></div>
 <script src="app.js"></script>
 </body>

@@ -17,12 +17,13 @@ def check(name, cond):
 
 
 def scenario(route, reason, text, handoff, forced=False):
-    log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0, stats=[])
+    log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0, stats=[], dialogs=[])
     me = SimpleNamespace(
         thinking=True, _local_reason=reason, _local_forced=forced, _last_reply="x", _force_claude=False,
-        _local_ctx=[], _local_last_q="ma question", chat=SimpleNamespace(next_label=None), _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
+        _local_ctx=[], _local_last_q="redémarre le serveur", _relay_msg="Jimmy, il veut redémarrer le serveur ; je ne sais pas faire, je te passe la main.", _local_name=lambda: "Aurélie", btn_voice=SimpleNamespace(isChecked=lambda: False), _remote_turn=False, chat=SimpleNamespace(next_label=None), _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
     )
     me._bump_local = lambda k: log.stats.append(k)
+    me.add_dialog = lambda f, t, x: log.dialogs.append((f, t, x))
     me.add_message = lambda role, t: log.messages.append((role, t))
     me.add_system = lambda t: log.system.append(t)
     me._finish = lambda: setattr(log, "finished", log.finished + 1)
@@ -42,15 +43,15 @@ H = "Demande de l'utilisateur : redémarre le serveur\n\nL'IA locale n'a pas pu 
 # Auto + refus : le refus n'est pas montré, Claude reprend, la ligne de passage est visible
 l = scenario("auto", "refus", "Je ne peux pas faire ça.", H)
 check("auto/refus : le « je ne peux pas » n'est PAS affiché", l.messages == [])
-check("auto/refus : ligne visible de passage à Claude", len(l.system) == 1 and l.system[0].startswith("↪") and "Claude" in l.system[0])
+check("auto/refus : l'IA locale PARLE à Jimmy (vraie phrase, pas une ligne technique)", len(l.dialogs) == 1 and l.dialogs[0][:2] == ("local", "jimmy") and l.dialogs[0][2].startswith("Jimmy,") and l.system == [])
 check("auto/refus : Claude reçoit la demande d'origine", len(l.submitted) == 1 and "redémarre le serveur" in l.submitted[0][0])
-check("auto/refus : sa réponse sera étiquetée CLAUDE · RELAIS", l.chat.next_label and "CLAUDE" in l.chat.next_label[0])
+check("auto/refus : Jimmy reçoit le message de l'IA locale (avec son prénom)", "Aurélie" in l.submitted[0][0] and "Jimmy, il veut" in l.submitted[0][0])
 check("auto/refus : forcé vers Claude, sans écho", l.submitted and l.submitted[0][1] is True and l.submitted[0][2] is False)
 
 # Auto + moteur coupé
 l = scenario("auto", "indisponible", "", "redémarre le serveur\n\n(L'IA locale est indisponible : moteur éteint)")
 check("auto/moteur coupé : rien d'affiché comme réponse locale", l.messages == [])
-check("auto/moteur coupé : Claude reprend", len(l.submitted) == 1 and l.submitted[0][1] is True and "moteur éteint" in l.system[0] + l.submitted[0][0])
+check("auto/moteur coupé : Claude reprend, après un message de l'IA locale", len(l.submitted) == 1 and l.submitted[0][1] is True and len(l.dialogs) == 1)
 
 # Auto + l'IA locale a demandé elle-même : sa phrase est montrée, puis Claude
 l = scenario("auto", "demande", "Je passe la main à Claude.", H)

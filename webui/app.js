@@ -4,7 +4,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let bridge = null;
 const S = { state: "loading", sessions: [], current: "", filter: "", level: 0, lastLevel: 0, prefs: {}, listening: false, muted: false,
-            attached: [], stepsBox: null, stepsCount: 0, live: null, liveQueue: [], stick: true, talkText: "Parler" };
+            attached: [], psy: 0, stepsBox: null, stepsCount: 0, live: null, liveQueue: [], stick: true, talkText: "Parler" };
 
 const STATE_NAMES = { error: "Problème", loading: "Démarrage", wake: "En veille", idle: "Prêt", listening: "J'écoute", thinking: "Je travaille", speaking: "Je réponds", muted: "Micro coupé", sent: "Envoyé" };
 
@@ -76,9 +76,16 @@ chat.addEventListener("click", e => {
   if (a) { e.preventDefault(); call("openUrl", a.getAttribute("href")); }
 });
 function closeSteps() { if (S.stepsBox) { S.stepsBox.classList.add("done"); const s = $("summary span.lbl", S.stepsBox); s.textContent = `Étapes (${S.stepsCount})`; S.stepsBox = null; S.stepsCount = 0; } }
+const LIMIT_RE = /(hit your|reached your|usage limit|limit reached|limit will reset|limite.*atteinte|atteint.*limite)/i;
+function isLimit(t) { return t.length < 400 && LIMIT_RE.test(t); }
 function addMsg(role, text, label, color) {
   closeSteps();
   const d = document.createElement("div");
+  if (role !== "user" && isLimit(text)) {            /* « limite atteinte » : une vraie carte, qui reste à sa place dans la discussion */
+    d.className = "limitcard";
+    d.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg><div><b>Limite atteinte</b><span></span><small>Jimmy reprendra là où il s\u2019est arrêté quand la limite sera levée.</small></div>';
+    $("span", d).textContent = text; chat.appendChild(d); refreshEmpty(); scrollDown(true); return;
+  }
   if (role === "user") {
     d.className = "msg user"; d.innerHTML = `<div class="body"></div>`; $(".body", d).textContent = text;
   } else {
@@ -86,6 +93,15 @@ function addMsg(role, text, label, color) {
     d.innerHTML = `<div class="who"><i></i><b>${esc(label || "JIMMY")}</b></div><div class="body">${markdown(text)}</div>`;
   }
   chat.appendChild(d); refreshEmpty(); scrollDown(role === "user");
+}
+function addDialog(e) {
+  closeSteps();
+  const d = document.createElement("div"); d.className = "msg assistant dialog " + (e.from === "local" ? "from-local" : "from-jimmy");
+  d.style.setProperty("--c", e.color || "");
+  d.innerHTML = '<div class="who"><i></i><b></b><em></em></div><div class="body"></div>';
+  $("b", d).textContent = e.who.toUpperCase(); $("em", d).textContent = "\u2192 " + e.whom;
+  $(".body", d).innerHTML = markdown(e.text);
+  chat.appendChild(d); refreshEmpty(); scrollDown(true);
 }
 function addSystem(text) { closeSteps(); const d = document.createElement("div"); d.className = "sys" + (text.startsWith("\u21aa") ? " handoff" : ""); d.innerHTML = "<span></span>"; $("span", d).textContent = text; chat.appendChild(d); refreshEmpty(); scrollDown(); }
 function addStep(text, first) {
@@ -96,9 +112,9 @@ function addStep(text, first) {
     chat.appendChild(d); S.stepsBox = d; S.stepsCount = 0;
   }
   const [kind, ...rest] = text.split(" · "); const line = document.createElement("div");
-  line.innerHTML = `<b></b><span></span>`; $("b", line).textContent = kind; $("span", line).textContent = rest.join(" · ");
+  line.innerHTML = `<b></b><span></span>`; if (rest.length) { $("b", line).textContent = kind; $("span", line).textContent = rest.join(" · "); } else { $("b", line).remove(); $("span", line).textContent = kind; line.className = "say"; }
   const lines = $(".lines", S.stepsBox); lines.appendChild(line); lines.scrollTop = lines.scrollHeight; S.stepsCount++;
-  $("summary span.lbl", S.stepsBox).textContent = `Étapes (${S.stepsCount}) · ${kind}`;
+  $("summary span.lbl", S.stepsBox).textContent = `Étapes (${S.stepsCount})`;
   refreshEmpty(); scrollDown();
 }
 /* écriture en direct synchronisée avec la voix */
@@ -125,14 +141,39 @@ function liveEnd(text, label, color) {
 function clearChat() { S.live = null; S.stepsBox = null; chat.innerHTML = ""; refreshEmpty(); S.stick = true; }
 
 /* ------------------------------------------------------------------ orbe d'état (canvas) */
-const orb = $("#orb"), octx = orb.getContext("2d");
+const orb = $("#orb"), octxReal = orb.getContext("2d"), orbBuf = document.createElement("canvas");
+orbBuf.width = orb.width; orbBuf.height = orb.height;
+const octxBuf = orbBuf.getContext("2d"); let octx = octxReal;
+function mixRed(hex, k) {
+  const m = /^#?([0-9a-f]{6})/i.exec(hex); if (!m) return hex;
+  const n = parseInt(m[1], 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255], r = [255, 30, 70];
+  return "#" + c.map((v, i) => Math.round(v * (1 - k) + r[i] * k).toString(16).padStart(2, "0")).join("");
+}
+function rnd(seed) { let s = seed >>> 0; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+function glitchOrb(t, psy) {
+  const w = orb.width, h = orb.height, R = rnd(Math.floor(t * 14)), sc = w / 150, g = octxReal;
+  const flicker = R() > 0.08 * psy ? 1 : 0.55, off = (3 + 7 * psy * (0.5 + 0.5 * Math.sin(t * 17))) * sc;
+  g.clearRect(0, 0, w, h);
+  g.globalAlpha = 0.38 * flicker; g.globalCompositeOperation = "lighter"; g.drawImage(orbBuf, -off, 0); g.drawImage(orbBuf, off, 0);
+  g.globalCompositeOperation = "source-over"; g.globalAlpha = flicker;
+  const burst = (Math.sin(t * 2.7) + Math.sin(t * 5.3 + 1.3)) > 1.45 - 0.9 * psy;
+  if (burst) {
+    for (let y = 0; y < h;) { const bh = Math.max(2, Math.round((6 + R() * 20) * sc)), dx = R() < 0.55 ? (R() * 2 - 1) * (30 * psy + 4) * sc : 0; g.drawImage(orbBuf, 0, y, w, bh, dx, y, w, bh); y += bh; }
+  } else g.drawImage(orbBuf, 0, 0);
+  g.globalAlpha = 1; g.fillStyle = "rgba(0,0,0," + (0.22 * psy) + ")";
+  for (let y = 0; y < h; y += 3) g.fillRect(0, y, w, 1);
+  const n = Math.floor(30 * psy) + (burst ? 60 : 0);
+  for (let i = 0; i < n; i++) { g.fillStyle = R() < 0.6 ? "rgba(255,30,70," + (0.25 + R() * 0.6) + ")" : "rgba(34,211,238," + (0.15 + R() * 0.5) + ")"; g.fillRect(R() * w, R() * h, (2 + R() * 16) * sc, R() < 0.5 ? 1 : 2); }
+}
 let orbT = 0;
 function cssv(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#22d3ee"; }
 function drawOrb(ts) {
-  const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2, st = S.state, t = ts / 1000;
+  const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2, st = S.state, t = ts / 1000, psy = S.psy || 0;
+  octx = psy > 0.02 ? octxBuf : octxReal;
   octx.clearRect(0, 0, w, h);
   const lvl = Math.min(1, S.level * 14); S.level *= 0.88;
-  const base = { loading: "#6b7490", wake: cssv("--accent"), idle: cssv("--accent"), listening: cssv("--ok"), thinking: cssv("--accent"), speaking: cssv("--accent2"), muted: cssv("--bad"), sent: cssv("--accent") }[st] || cssv("--accent");
+  let base = { loading: "#6b7490", wake: cssv("--accent"), idle: cssv("--accent"), listening: cssv("--ok"), thinking: cssv("--accent"), speaking: cssv("--accent2"), muted: cssv("--bad"), sent: cssv("--accent") }[st] || cssv("--accent");
+  if (psy > 0.02) base = mixRed(base, Math.min(0.9, psy * (0.45 + 0.2 * Math.sin(t * 9) * Math.sin(t * 3.1))));
   let r = w * 0.2, pulse = 0;
   if (st === "listening") pulse = lvl * 0.22; else if (st === "speaking") pulse = (0.08 + 0.07 * Math.sin(t * 9)) ; else if (st === "wake" || st === "idle") pulse = 0.03 * Math.sin(t * 1.6); else if (st === "thinking") pulse = 0.04 * Math.sin(t * 5);
   const g = octx.createRadialGradient(cx, cy, 2, cx, cy, w * 0.48);
@@ -153,6 +194,7 @@ function drawOrb(ts) {
   } else if (st === "listening") {
     octx.globalAlpha = 0.5; octx.beginPath(); octx.arc(cx, cy, w * (0.38 + lvl * 0.1), 0, 7); octx.stroke(); octx.globalAlpha = 1;
   }
+  if (psy > 0.02) glitchOrb(t, psy);
   requestAnimationFrame(drawOrb);
 }
 requestAnimationFrame(drawOrb);
@@ -164,7 +206,7 @@ function setState(st) {
   updateTalk();
 }
 function updateTalk() {
-  const b = $("#btnTalk"), listening = S.state === "listening";
+  const b = $("#btnTalk"), listening = S.listening || S.state === "listening";
   const flowing = performance.now() - S.lastLevel < 2500;
   b.classList.toggle("active", listening && flowing); b.classList.toggle("warn", listening && !flowing); b.classList.toggle("muted", S.muted);
   $("#talkText").textContent = listening ? (flowing ? "J'écoute…" : "Micro silencieux…") : "Parler";
@@ -174,11 +216,20 @@ function updateTalk() {
 setInterval(updateTalk, 700);   /* le bouton ne ment jamais : « J'écoute » seulement si du son arrive vraiment */
 
 /* ------------------------------------------------------------------ discussions (barre latérale) */
+let tipTimer = 0;
+function showTip(el, text) {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => {
+    const t = $("#sessTip"), r = el.getBoundingClientRect(); t.textContent = text; t.hidden = false;
+    t.style.left = (r.right + 10) + "px"; t.style.top = Math.max(8, Math.min(r.top, innerHeight - t.offsetHeight - 8)) + "px";
+  }, 300);
+}
+function hideTip() { clearTimeout(tipTimer); $("#sessTip").hidden = true; }
 function renderSessions() {
   const box = $("#sessions"); box.innerHTML = ""; const f = S.filter.toLowerCase();
   for (const s of S.sessions) {
     if (f && !s.title.toLowerCase().includes(f)) continue;
-    const d = document.createElement("div"); d.className = "session" + (s.id === S.current ? " active" : "") + (s.full ? " full" : ""); d.title = s.title;
+    const d = document.createElement("div"); d.className = "session" + (s.id === S.current ? " active" : "") + (s.full ? " full" : ""); d.onmouseenter = () => showTip(d, s.tip || s.title); d.onmouseleave = hideTip;
     d.innerHTML = `<div class="t"></div><div class="w"></div><div class="acts"><button data-a="ren" title="Renommer"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></button><button data-a="del" title="Supprimer"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button></div>`;
     $(".t", d).textContent = s.title; $(".w", d).textContent = s.when + (s.full ? "  ·  pleine" : "");
     d.onclick = e => { const a = e.target.closest("[data-a]"); if (a) { e.stopPropagation(); call(a.dataset.a === "ren" ? "renameSession" : "deleteSession", s.id); } else call("openSession", s.id); };
@@ -197,6 +248,12 @@ input.addEventListener("keydown", e => {
 });
 $("#btnSend").onclick = send;
 $("#btnAttach").onclick = () => call("pickFiles");
+/* Ctrl+V : une capture d'écran (ou un fichier copié) devient une pièce jointe ; le texte se colle normalement */
+window.addEventListener("paste", e => {
+  const cd = e.clipboardData; if (!cd) return;
+  const hasFile = (cd.files && cd.files.length) || [...(cd.items || [])].some(i => i.kind === "file");
+  if (hasFile && ![...(cd.types || [])].includes("text/plain")) { e.preventDefault(); call("pasteFiles"); }
+}, true);
 $("#btnAttachFolder").onclick = () => call("openAttachFolder");
 function renderChips() {
   const box = $("#chips"); box.innerHTML = ""; box.hidden = !S.attached.length;
@@ -249,8 +306,26 @@ $("#btnVoiceMenu").onclick = e => { e.stopPropagation(); vm.hidden = !vm.hidden;
 document.addEventListener("click", e => { if (!vm.hidden && !e.target.closest(".menu-wrap")) vm.hidden = true; });
 $("#btnUpdate").onclick = () => call("checkUpdate");
 function setLook(v) { document.documentElement.dataset.look = v; try { localStorage.setItem("jimmy-look", v); } catch (e) {} }
-$("#btnLook").onclick = () => setLook(document.documentElement.dataset.look === "cyber" ? "sobre" : "cyber");
 try { setLook(localStorage.getItem("jimmy-look") || "cyber"); } catch (e) { setLook("cyber"); }
+function setMode(m) { document.documentElement.dataset.theme = m; try { localStorage.setItem("jimmy-theme", m); } catch (e) {} renderThemeMenu(); }
+const tm = $("#themeMenu");
+$("#btnThemeMenu").onclick = e => { e.stopPropagation(); tm.hidden = !tm.hidden; vm.hidden = true; if (!tm.hidden) renderThemeMenu(); };
+document.addEventListener("click", e => { if (!tm.hidden && !e.target.closest("#themeWrap")) tm.hidden = true; });
+$$("#lookOpts button").forEach(b => b.onclick = () => { setLook(b.dataset.look); renderThemeMenu(); });
+$$("#modeOpts button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+function renderThemeMenu() {
+  const look = document.documentElement.dataset.look, mode = document.documentElement.dataset.theme;
+  $$("#lookOpts button").forEach(b => b.classList.toggle("on", b.dataset.look === look));
+  $$("#modeOpts button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+  $("#modeTitle").hidden = $("#modeOpts").hidden = look === "cyber";
+  const box = $("#accentOpts"); box.innerHTML = "";
+  for (const [name, a, b2] of (S.prefs.accents || [])) {
+    const btn = document.createElement("button"); btn.className = "acc" + (name === S.prefs.accent_name ? " on" : "");
+    btn.innerHTML = '<i></i><span></span>'; $("i", btn).style.background = "linear-gradient(135deg," + a + "," + b2 + ")";
+    $("span", btn).textContent = name + (name === "Cyberpsychose" ? " (glitchs)" : "");
+    btn.onclick = () => call("setAccent", name); box.appendChild(btn);
+  }
+}
 $("#btnTheme").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = t; try { localStorage.setItem("jimmy-theme", t); } catch (e) {} };
 try { const t = localStorage.getItem("jimmy-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
@@ -266,7 +341,7 @@ function applyPrefs(p) {
   $$("#voiceMenu input[data-k]").forEach(i => i.checked = !!p.toggles[i.dataset.k]);
   $("#routeSeg").hidden = !p.local_enabled; $("#localStats").hidden = !p.local_enabled; $("#btnLocal").hidden = !!p.local_enabled; $("#swLocal").checked = !!p.local_enabled; setRoute(p.route);
   $("#wakeWord").textContent = p.wake_label;
-  document.body.classList.toggle("psy", !!p.psy);
+  document.body.classList.toggle("psy", !!p.psy); S.psy = p.psy_level || (p.psy ? 1 : 0); renderThemeMenu();
 }
 function toast(text, err) { const t = document.createElement("div"); t.className = "toast" + (err ? " err" : ""); t.textContent = text; $("#toasts").appendChild(t); setTimeout(() => t.remove(), 7000); }
 
@@ -288,7 +363,7 @@ function onEvent(e) {
     case "usage_title": $("#usageTitle").textContent = e.text; break;
     case "ctx": { $("#ctxLbl").textContent = e.label; const b = $("#ctxBar"); b.style.width = e.pct + "%"; b.style.background = e.color || ""; $(".ctx").title = e.tip || ""; break; }
     case "folder": $("#folderLbl").textContent = e.text; break;
-    case "level": S.level = Math.max(S.level, e.rms); S.lastLevel = performance.now(); $("#micLevel").style.width = Math.min(100, e.rms * 900) + "%"; break;
+    case "level": S.level = Math.max(S.level, e.rms); { const was = performance.now() - S.lastLevel < 2500; S.lastLevel = performance.now(); if (!was) updateTalk(); } $("#micLevel").style.width = Math.min(100, e.rms * 900) + "%"; break;
     case "preview": { const p = $("#preview"); p.textContent = e.text; p.hidden = !e.text; break; }
     case "append": input.value = (input.value ? input.value + " " : "") + e.text; fit(); input.focus(); break;
     case "placeholder": input.placeholder = e.text; break;
@@ -304,10 +379,11 @@ function onEvent(e) {
       break;
     }
     case "dragging": $("#dropHint").hidden = !e.on; break;
+    case "dialog": addDialog(e); break;
     case "attached": S.attached = e.items || []; renderChips(); break;
-    case "localstats": { const n = e.local + e.relay + e.direct; $("#localStatsText").textContent = n ? `${e.local} réponses seule \u00b7 ${e.relay} relais \u00b7 ${e.direct} direct à Claude` : "aucune demande pour l'instant"; break; }
+    case "localstats": { const n = e.local + e.relay + e.direct + (e.delegated || 0); $("#localStatsText").textContent = n ? `${e.name || "IA locale"} : ${e.local} réponses seule \u00b7 ${e.relay} relais \u00b7 ${e.direct} direct à Claude \u00b7 ${e.delegated || 0} recherches pour Jimmy` : "aucune demande pour l'instant"; break; }
     case "toast": toast(e.text, e.err); break;
-    case "psy": document.body.classList.toggle("psy", e.level > 0); break;
+    case "psy": document.body.classList.toggle("psy", e.level > 0); S.psy = e.level || 0; break;
   }
 }
 window.addEventListener("load", () => { fit(); connect(); setTimeout(() => input.focus(), 300); });
