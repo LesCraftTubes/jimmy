@@ -165,15 +165,41 @@ def _text(raw: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+_STOP = set("""dans avec pour cette votre notre leurs elles vraiment potentiellement genre quand alors aussi comme faire elle cherche chercher trouve trouver
+regarde regarder voir site page pages mettre mets veux voudrais aimerais peux pouvoir moyen donne donner liste meilleurs meilleur meilleure puissant puissants
+puissante vraiment sentir tout tous toutes fait faut plus moins entre parmi leur ceux celles sont sera serait etre avoir encore deja jamais toujours""".split())
+
+
+def keywords_of(text: str) -> list:
+    """Mots utiles d'une demande (5 lettres et plus, sans les mots courants) : servent à choisir les pages à lire."""
+    out = []
+    for w in re.findall(r"\w{5,}", (text or "").lower()):
+        if w not in _STOP and w not in out:
+            out.append(w)
+    return out[:14]
+
+
+def _anchors(raw: str, base: str) -> dict:
+    """adresse -> texte du lien (pour deviner quelles pages parlent du sujet)."""
+    out = {}
+    for m in re.finditer(r"""(?is)<a\s[^>]*href=["']([^"'#]+)["'][^>]*>(.*?)</a>""", raw):
+        out.setdefault(urllib.parse.urljoin(base, html.unescape(m.group(1))).split("#")[0], _clean(m.group(2)).lower())
+    return out
+
+
 def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1500, on_page=None) -> str:
     """Parcourt un site à partir d'une page (liens du même site) et renvoie le texte des pages lues.
-    Avec des mots-clés, les pages qui les contiennent passent en premier et on n'en garde que les passages utiles."""
+    Avec des mots-clés, les liens dont l'adresse ou le texte parlent du sujet sont suivis en premier (c'est elle qui cherche),
+    puis les pages qui contiennent les mots passent en tête du résultat, avec seulement les passages utiles."""
     start = resolve(start) or (SITE + SITE_DOC)
     if not start:
-        raise ValueError("aucune adresse donnée et aucun site configuré : demande l'adresse à l'utilisateur")
+        raise ValueError("aucune adresse donnée et aucun site configuré : trouve l'adresse avec chercher_web ou la mémoire, sans rien demander à l'utilisateur")
     if not re.match(r"^https?://", start, re.I):
         raise ValueError("adresse refusée : seules les adresses http(s) sont lues")
-    words = [w.lower() for w in re.findall(r"\w{3,}", keywords or "")]
+    words = keywords_of(keywords)
+    if words:
+        max_pages = max(max_pages, 20)
+    stems = [w[:5] for w in words]
     queue, seen, pages = [start], {start}, []
     while queue and len(pages) < max_pages:
         url = queue.pop(0)
@@ -184,9 +210,10 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
             continue
         txt = _text(raw)
         title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", raw) or [None, url])[1]
-        score = sum(txt.lower().count(w) for w in words)
+        low = txt.lower()
+        score = sum(low.count(w) for w in words)
         if words and score:
-            hits = [m.start() for w in words[:4] for m in re.finditer(re.escape(w), txt, re.I)][:3]
+            hits = [m.start() for w in words[:6] for m in re.finditer(re.escape(w), low)][:4]
             snip = " … ".join(txt[max(0, h - 250):h + 450] for h in sorted(set(hits))[:2])
         else:
             snip = txt[:per_page]
@@ -197,9 +224,13 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
             except Exception:  # noqa: BLE001
                 pass
         base = start.rsplit("/", 1)[0] + "/"
-        for l in sorted(_links(raw, url), key=lambda x: not x.startswith(base)):    # les pages voisines de la page de départ d'abord
-            if l not in seen:
-                seen.add(l)
-                queue.append(l)
+        anchors = _anchors(raw, url)
+
+        def prio(l):
+            hay = (urllib.parse.unquote(l) + " " + anchors.get(l, "")).lower()
+            return (0 if any(st in hay for st in stems) else 1, 0 if l.startswith(base) else 1)
+        new = [l for l in _links(raw, url) if l not in seen]
+        seen.update(new)
+        queue = sorted(queue + new, key=prio)        # les liens qui parlent du sujet passent devant
     pages.sort(key=lambda p: -p[0])
     return "\n\n".join(f"[Page {u}]\n{t}" for _s, u, t in pages) + f"\n\n({len(pages)} pages lues, {len(seen)} adresses repérées sur le site)"

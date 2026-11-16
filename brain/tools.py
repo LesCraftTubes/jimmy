@@ -116,10 +116,23 @@ def _t_page(a, ctx):
             + web.fetch(web.resolve(a.get("adresse", "")), 5000))
 
 
+def _site_from_memory() -> str:
+    """Pas d'adresse ni de site réglé : on la cherche dans la mémoire de Jimmy (« mon site », adresse retenue par l'utilisateur)."""
+    try:
+        import jimmy_mem
+        for row in jimmy_mem.search("site adresse", 8):
+            m = re.search(r"https?://[^\s)>\]\"']+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:fr|com|net|org|io|dev|eu|gg)", " ".join(str(x) for x in tuple(row)), re.I)
+            if m:
+                return m.group(0)
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _t_site(a, ctx):
     web.configure(ctx.cfg)
     try:
-        start = a.get("adresse", "") or (web.SITE + web.SITE_DOC)
+        start = a.get("adresse", "") or (web.SITE + web.SITE_DOC) or _site_from_memory()
         ctx.step("Site", "Je parcours " + web.resolve(start))
         out = web.crawl(start, a.get("mots", ""), 12,
                         on_page=lambda u, ti, n, m: ctx.step("Page lue", f"{n}/{m} · {ti or u}"))
