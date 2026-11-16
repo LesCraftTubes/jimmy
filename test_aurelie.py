@@ -123,5 +123,67 @@ check("chercher_texte : ne lit pas les fichiers de secrets", "introuvable" in re
 check("ces deux outils marchent aussi en lecture seule (demande de Jimmy)", "shop.php" in T.base_registry().call("chercher_fichiers", {"motif": "shop"}, T.Context(cfg=Cfg(workdir=str(work)), user_text="")))
 check("recherche vide : message clair", "vide" in reg.call("chercher_texte", {"texte": " "}, ctx))
 
+# ---------------------------------------------------------------- le cas réel : « qu'est-ce que vous savez faire ? »
+from brain import agent as A
+from brain import dialogue as D
+
+
+class Boom:
+    def chat(self, messages, tools=None):
+        raise AssertionError("le modèle ne doit PAS être appelé pour une question sur ses capacités")
+
+
+ag = A.LocalAgent(Cfg(workdir=str(work)))
+ag.engine, ag.registry, ag.packs = Boom(), T.base_registry(), []
+q = "Hey, j'aimerais un petit message de vous deux, savoir ce qu'Aurélie sait faire, et après demande à Jimmy ce qu'il sait faire aussi."
+reply, handoff = ag.run(q)
+check("« ce qu'Aurélie sait faire » : elle répond de mémoire (aucun modèle, aucune recherche)", reply == A.CAPS_LOCAL and "Hey Aurélie" in reply)
+check("la question concerne aussi Jimmy : il est chargé de présenter ses capacités", "Présente maintenant les tiennes" in handoff and ag.last_reason == "demande")
+reply2, handoff2 = ag.run("Aurélie, qu'est-ce que tu sais faire ?")
+check("question seulement pour elle : pas de relais", reply2 == A.CAPS_LOCAL and handoff2 == "")
+
+# ---------------------------------------------------------------- plus de recherches identiques en boucle
+class Script2:
+    def __init__(self, script):
+        self.script = list(script)
+
+    def chat(self, messages, tools=None):
+        return self.script.pop(0)
+
+
+def web_call(q):
+    return {"content": "", "tool_calls": [{"id": q, "function": {"name": "chercher_web", "arguments": {"requete": q}}}]}
+
+
+reg2 = T.base_registry()
+runs = []
+reg2.tools["chercher_web"].func = lambda a, c: runs.append(a["requete"]) or "[Résultats via Bing : information]\n- Tour Eiffel : https://x"
+ag = A.LocalAgent(Cfg(workdir=str(work)))
+ag.engine, ag.registry, ag.packs = Script2([web_call("Jimmy")] * 5 + [{"content": "Voilà ce que j'ai trouvé."}]), reg2, []
+ag.run("parle-moi de Jimmy")
+check("la même recherche répétée 5 fois n'est lancée qu'UNE fois", runs == ["Jimmy"])
+runs.clear()
+ag = A.LocalAgent(Cfg(workdir=str(work)))
+ag.engine, ag.registry, ag.packs = Script2([web_call(f"requête {i}") for i in range(6)] + [{"content": "Réponse finale."}]), reg2, []
+ag.run("raconte des choses")
+check("jamais plus de 3 recherches web pour une demande", len(runs) == 3)
+
+# ---------------------------------------------------------------- l'étape « résultat » apprend quelque chose
+steps = []
+ctx3 = T.Context(cfg=Cfg(workdir=str(work)), user_text="", on_step=steps.append)
+reg3 = T.base_registry()
+reg3.tools["chercher_web"].func = lambda a, c: "[Résultats via Bing : information]\n- Tour Eiffel : https://x\n  330 m"
+reg3.call("chercher_web", {"requete": "tour eiffel"}, ctx3)
+check("la ligne « Résultat » montre le premier résultat, pas l'en-tête entre crochets", any(s == "Résultat · Tour Eiffel : https://x" for s in steps))
+
+# ---------------------------------------------------------------- un refus n'est jamais envoyé à Jimmy comme « message »
+class Refuse:
+    def chat(self, messages, tools=None):
+        return {"content": "Je suis désolée, mais je ne peux pas aider avec ça."}
+
+
+m = D.message_to_jimmy(Refuse(), "présente vos capacités", [], "demande", "Aurélie")
+check("le modèle refuse : phrase de secours (« Jimmy, ... »), pas le refus", m.startswith("Jimmy,") and "désolée" not in m)
+
 print("\nRESULTAT :", "TOUT EST OK" if not fails else f"{len(fails)} ECHEC(S) : {fails}")
 sys.exit(1 if fails else 0)

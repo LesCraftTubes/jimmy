@@ -116,6 +116,9 @@ def message_to_jimmy(engine, user_text: str, journal: list, reason: str, name: s
     user = f"Demande de l'utilisateur : {_clip(user_text, 500)}\nCe que tu as déjà fait :\n{done}\nTu lui passes la main parce que {why}."
     text = _ask_model(engine, [{"role": "system", "content": system}, {"role": "user", "content": user}], timeout)
     text = re.sub(r"^[\"«»\s]+|[\"«»\s]+$", "", text)
-    if len(text) < 12 or len(text) > 900:
-        return backup
+    from .agent import is_failure
+    # Un vrai message commence par « Jimmy » (elle lui parle) ; un refus générique (« je ne peux pas aider ») est écarté.
+    refus = is_failure(text) and not text.lower().startswith("jimmy")
+    if len(text) < 12 or len(text) > 900 or refus:
+        return backup          # un refus (« je ne peux pas aider ») n'est pas un message pour Jimmy : phrase de secours
     return text

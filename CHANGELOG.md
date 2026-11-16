@@ -1,5 +1,11 @@
 ﻿# Historique des versions
 
+## 2.1.1
+- **Aurélie répond de mémoire à « qu'est-ce que tu sais faire ? »** : aucune recherche, aucun token. Si la question concerne aussi Jimmy, elle lui passe la main pour qu'il présente ses propres capacités. Avant, elle partait chercher « Jimmy » sur Internet 7 fois de suite puis refusait.
+- **Plus de recherches en boucle** : une recherche identique n'est jamais relancée, et pas plus de 3 recherches web par demande.
+- **Son message à Jimmy n'est plus jamais un refus** (« je ne peux pas aider avec ça ») : si son modèle refuse, une vraie phrase de secours est utilisée.
+- Dans les étapes, la ligne « J'ai obtenu : ... » montre le premier résultat au lieu de l'en-tête technique.
+
 ## 2.1.0
 - **L'IA locale et Jimmy se parlent vraiment** : l'IA locale a un prénom, **Aurélie** (modifiable : réglage `local_name`). Quand elle passe la main, elle écrit elle-même, avec son modèle, un vrai message à Jimmy (ce que tu veux, ce qu'elle a déjà fait, pourquoi elle passe la main) ; il s'affiche dans la discussion, puis Jimmy répond. Si son moteur est éteint, une phrase de secours prend le relais : le dialogue ne casse jamais.
 - **Jimmy peut demander du travail à Aurélie** : pour chercher un fichier, lire, lister un dossier ou chercher sur Internet, Claude appelle d'abord l'IA locale (commande gratuite, aucun token de ton abonnement). La question et la réponse s'affichent dans les deux sens. Elle n'a que des outils de lecture dans ce cas : le code lui interdit d'écrire ou de lancer des commandes.

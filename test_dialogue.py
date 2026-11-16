@@ -75,6 +75,9 @@ ok, ans = local_server.ask("où est le fichier shop.php ?", env["JIMMY_LOCAL_POR
 check("Jimmy vers IA locale : la question arrive, la réponse revient", ok and ans == "Réponse à : où est le fichier shop.php ?" and received == ["où est le fichier shop.php ?"])
 ok2, ans2 = local_server.ask("x", env["JIMMY_LOCAL_PORT"], "mauvais-jeton")
 check("mauvais jeton : refusé (un autre programme ne peut pas s'en servir)", not ok2 and "invalide" in ans2.lower() and len(received) == 1)
+import os
+os.environ.pop("JIMMY_LOCAL_PORT", None)          # ce test tourne peut-être DANS un Jimmy en marche : on enlève ses variables
+os.environ.pop("JIMMY_LOCAL_TOKEN", None)
 ok3, ans3 = local_server.ask("x", None, None)
 check("IA locale coupée : message clair pour Claude", not ok3 and "toi-même" in ans3)
 srv.shutdown()

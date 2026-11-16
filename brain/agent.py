@@ -81,6 +81,17 @@ def prefetch(user_text: str) -> list:
     return calls
 
 
+CAPS_LOCAL = (
+    "Moi, Aurélie, je suis l'IA locale de Jimmy : gratuite, sur ton PC, sans consommer ton abonnement. Je sais chercher sur Internet "
+    "(navigateur invisible, vrais résultats), lire des pages, chercher des fichiers par nom ou dans leur contenu, lire et lister tes dossiers, "
+    "retrouver ce que Jimmy a mis en mémoire et, quand tu me le demandes, créer ou modifier un fichier (avec sauvegarde) ou lancer une commande. "
+    "Je réponds aux demandes simples ; pour le code, le serveur, la base de données ou une longue recherche, je passe la main à Jimmy avec un "
+    "message et ce que j'ai déjà fait. Dis « Hey Aurélie » pour m'appeler."
+)
+_SELF = re.compile(r"(sait|sais|savez|sauras|sauriez).{0,12}faire|(capable|capables).{0,15}faire|ce que (tu|vous|elle|aurélie|aurelie).{0,12}"
+                   r"(sais|sait|peux|peut|pouvez)|(à|a) quoi (tu|elle) sers?|tes capacités|tes capacites", re.I)
+_BOTH = re.compile(r"jimmy|claude|vous deux|les deux", re.I)
+
 _REFUS = re.compile(
     r"(je (ne )?(peux|pourrai|pourrais|saurais|sais) pas|je n'?ai pas (la capacité|accès|acces|les moyens|la possibilité|les outils|d'accès)|"
     r"je ne suis pas (en mesure|capable|autorisé)|je ne dispose pas|je n'?y ai pas accès|en tant qu'(ia|intelligence)|"
@@ -161,6 +172,17 @@ class LocalAgent:
 
     def run(self, user_text: str, readonly: bool = False):
         """-> (réponse, résumé à transmettre à Claude ou "")."""
+        if not readonly and _SELF.search(user_text or ""):
+            # « Qu'est-ce que tu sais faire ? » : elle répond de mémoire (aucune recherche, aucun token) ; si la question
+            # concerne aussi Jimmy, elle lui passe la main pour qu'il présente ses propres capacités.
+            self.last_journal = []
+            self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": CAPS_LOCAL}]
+            if _BOTH.search(user_text):
+                self.last_reason = "demande"
+                return CAPS_LOCAL, (f"Demande de l'utilisateur : {user_text}\n\nAurélie vient de présenter ses capacités. "
+                                    "Présente maintenant les tiennes (Jimmy / Claude), en 3 ou 4 phrases courtes, sans rien chercher.")
+            self.last_reason = ""
+            return CAPS_LOCAL, ""
         if not self.engine:
             why = self.ready()
             if why:
@@ -184,6 +206,7 @@ class LocalAgent:
             messages.append({"role": "tool", "tool_call_id": cid, "name": name,
                              "content": self.registry.call(name, args, ctx)})
         reply = ""
+        seen, counts = set(), {}
         for _ in range(MAX_STEPS + 1):
             msg = self.engine.chat(messages, tools=tools if _ < MAX_STEPS else None)
             calls = msg.get("tool_calls") or _parse_text_calls(msg.get("content") or "")
@@ -197,7 +220,16 @@ class LocalAgent:
                                             for i, c in enumerate(calls)]})
             for i, c in enumerate(calls):
                 name = c["function"]["name"]
-                result = self.registry.call(name, _args(c), ctx)
+                key = name + "|" + json.dumps(_args(c), sort_keys=True, ensure_ascii=False)
+                counts[name] = counts.get(name, 0) + 1
+                if key in seen:
+                    result = ("Tu as déjà fait exactement cette recherche : utilise son résultat, ne la répète pas. "
+                              "Réponds maintenant, ou utilise passer_a_claude.")
+                elif name in ("chercher_web", "lire_page") and counts[name] > 3:
+                    result = "Assez cherché sur Internet pour cette demande : réponds avec ce que tu as, ou utilise passer_a_claude."
+                else:
+                    seen.add(key)
+                    result = self.registry.call(name, _args(c), ctx)
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."

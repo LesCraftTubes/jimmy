@@ -80,7 +80,9 @@ class Registry:
         except Exception as e:  # noqa: BLE001
             out = f"Erreur de l'outil {name} : {e}"
         out = str(out if out is not None else "")
-        first = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+        # La ligne affichée est la première qui apprend quelque chose (pas l'en-tête entre crochets des résultats).
+        first = next((ln.strip().lstrip("- ") for ln in out.splitlines() if ln.strip() and not ln.strip().startswith("[")), "") \
+            or next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
         if name != "passer_a_claude":
             ctx.journal.append(f"{name}({' '.join(str(v) for v in args.values())[:80]}) -> {first[:140]}")
         ctx.step("Résultat", first[:110])      # l'utilisateur voit ce que l'outil a VRAIMENT renvoyé (le modèle peut se tromper en le résumant)
