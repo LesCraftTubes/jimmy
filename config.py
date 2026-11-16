@@ -146,6 +146,7 @@ DEFAULTS = {
     "ui": "web",                   # interface : web (page HTML/CSS moderne) ou classic (ancienne fenêtre)
     # IA locale (facultative) : un moteur local (LM Studio, Bionic, Ollama) répond aux demandes simples,
     # va sur Internet, lit les fichiers, et passe la main à Claude quand ça dépasse ses moyens.
+    "haiku_helper": True,          # Claude délègue la recherche et les tâches simples à Haiku (économise le quota)
     "local_enabled": False,
     "route": "claude",             # qui répond : claude, local, auto (l'IA locale décide, Claude en renfort)
     "local_url": "",               # adresse du moteur (vide = détection automatique sur ce PC)

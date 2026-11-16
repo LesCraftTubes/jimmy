@@ -27,6 +27,7 @@
     <div class="section">Discussions</div>
     <nav id="sessions" aria-label="Discussions"></nav>
 
+    <div class="localstats" id="localStats" hidden title="Ce que fait l'IA locale : réponses données seule, demandes qu'elle a passées à Claude, demandes trop lourdes envoyées directement à Claude"><b>IA locale</b><span id="localStatsText">—</span></div>
     <div class="section" id="usageTitle">Abonnement</div>
     <div class="usage" id="usage1"><div class="usage-row"><span>Session</span><span class="muted" id="usageText1">—</span></div><div class="bar"><i id="usageBar1"></i></div></div>
     <div class="usage" id="usage2"><div class="usage-row"><span>Semaine</span><span class="muted" id="usageText2">—</span></div><div class="bar"><i id="usageBar2"></i></div></div>
@@ -34,6 +35,7 @@
     <div class="side-actions">
       <button class="ghost" id="btnCC"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Ouvrir dans Claude Code</button>
       <button class="ghost" id="btnMobile"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Appli mobile</button>
+      <button class="ghost" id="btnAttachFolder"><svg viewBox="0 0 24 24"><path d="M21 12.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.2-8.2"/></svg>Pièces jointes</button>
       <button class="ghost" id="btnFolder"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Dossier de travail</button>
       <div class="folder" id="folderLbl"></div>
       <button class="ghost" id="btnSettings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Réglages</button>
@@ -88,9 +90,11 @@
     <footer id="composerWrap">
       <div class="ctx" title=""><span id="ctxLbl">Contexte 0 %</span><div class="bar slim"><i id="ctxBar"></i></div></div>
       <div id="composer">
+        <div id="chips" hidden></div>
         <div id="preview" hidden></div>
         <textarea id="input" rows="1" placeholder="Écris ici…" spellcheck="true"></textarea>
         <div class="composer-actions">
+          <button class="icon-btn" id="btnAttach" title="Joindre des fichiers (ou glisse-les ici)" aria-label="Joindre"><svg viewBox="0 0 24 24"><path d="M21 12.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.2-8.2"/></svg></button>
           <button class="mic" id="btnTalk" title="Parler. Reclique pour valider ce que tu as dit.">
             <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="talkText">Parler</span>
             <i class="level" id="micLevel"></i>
@@ -105,6 +109,7 @@
   </main>
 </div>
 
+<div id="dropHint" hidden><div>Dépose les fichiers ici pour les joindre au message</div></div>
 <div id="toasts"></div>
 <script src="app.js"></script>
 </body>

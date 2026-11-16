@@ -311,6 +311,8 @@ class JimmyWindow(QMainWindow):
         self.sig.info.connect(self.add_system)
         self._local_forced = False
         self._local_reason = ""
+        self._local_ctx = []        # ce que l'IA locale a dit : Claude le saura à son prochain message
+        self._local_last_q = ""
         self.local_agent = None     # IA locale, créée à la première demande
         self._force_claude = False  # le prochain message part chez Claude quoi que dise le sélecteur
         self._remote_quiet = False  # pendant un réaffichage local (thème) : rien n'est renvoyé au téléphone
@@ -1363,6 +1365,9 @@ class JimmyWindow(QMainWindow):
         if self._handoff_note and consent is None:
             prompt = self._handoff_note + "\n\n" + prompt
             self._handoff_note = ""
+        if self._local_ctx and consent is None:
+            prompt = ("[Contexte : l'IA locale de Jimmy a déjà répondu entre-temps : " + " | ".join(self._local_ctx) + "]\n\n" + prompt)
+            self._local_ctx = []
         threading.Thread(target=self._work, args=(prompt, consent), daemon=True).start()
 
     def _work(self, text: str, consent=None) -> None:
@@ -1394,6 +1399,11 @@ class JimmyWindow(QMainWindow):
             return False
         if low.startswith(("@local", "@ia")):
             return True
+        if self._route() == "auto":
+            from brain.agent import needs_claude
+            if needs_claude(text):
+                self._bump_local("direct")      # trop lourd pour elle : Claude directement, sans détour
+                return False
         return self._route() in ("local", "auto")
 
     def _submit_local(self, text: str, echo: bool = True) -> None:
@@ -1409,6 +1419,7 @@ class JimmyWindow(QMainWindow):
         if self._local_forced:
             text = parts[1] if len(parts) > 1 else ""
         self._local_reason = ""
+        self._local_last_q = text
         threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
 
     def _work_local(self, text: str) -> None:
@@ -1453,7 +1464,12 @@ class JimmyWindow(QMainWindow):
             self._remote_emit({"type": "message", "role": "assistant", "text": text})
             self.add_message("local", text)
         self._last_reply = ""
+        if text and not handoff:
+            self._bump_local("local")
+            self._local_ctx = (self._local_ctx + [f"à « {self._local_last_q[:100]} » elle a répondu : {text[:240]}"])[-3:]
         if handoff and auto:
+            self._bump_local("relay")
+
             why = self._HANDOFF_WHY.get(reason, "elle a besoin de Claude")
             self.add_system(f"↪ L'IA locale passe la main à Claude ({why}).")
             self._finish()
@@ -1467,6 +1483,21 @@ class JimmyWindow(QMainWindow):
             self.add_system("↪ L'IA locale propose de passer la main à Claude : mets le sélecteur sur Claude "
                             "ou écris « @claude » devant ta demande.")
         self._finish()
+
+    def _bump_local(self, key: str) -> None:
+        st = dict(self.cfg.get("local_stats") or {})
+        st[key] = int(st.get(key, 0)) + 1
+        self.cfg.set("local_stats", st)
+        self._push_local_stats()
+
+    def _push_local_stats(self) -> None:
+        pass            # la fenêtre web l'affiche dans la barre latérale
+
+    def _share_with_local(self, claude_text: str) -> None:
+        """Claude vient de répondre : l'IA locale le sait aussi (elle garde le fil de la conversation)."""
+        if self.local_agent is not None and self.cfg.get("local_enabled", False) and self._last_request:
+            self.local_agent.history += [{"role": "user", "content": self._last_request[:400]},
+                                         {"role": "assistant", "content": "[Claude a répondu] " + (claude_text or "")[:600]}]
 
     def set_local_enabled(self, on: bool) -> None:
         """Active ou coupe l'IA locale d'un clic (sans passer par les Réglages) et dit tout de suite si le moteur répond."""
@@ -1503,6 +1534,7 @@ class JimmyWindow(QMainWindow):
         self._refresh_placeholder()
 
     def _on_reply(self, text: str) -> None:
+        self._share_with_local(text)
         if (self.listener.state == "listening" and not self.bridge.pending_tools and not self._queued
                 and text.strip().upper().strip(".! ") != "IGNORER"):
             # Tu es en train de parler : on n'écrase pas ta phrase. La réponse s'affiche sans être lue,

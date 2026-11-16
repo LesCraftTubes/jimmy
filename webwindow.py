@@ -6,23 +6,27 @@ JimmyWindow garde toute la logique (écoute, Claude, voix, IA locale, discussion
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
+import shutil
 import sys
+import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog
 
 import sessions
 import theme
 import window as W
-from config import ACCENTS, app_dir
+from config import ACCENTS, app_dir, data_dir
 from speaker import DEFAULT_PRESET, VOICE_PRESETS, resolve_preset
 from version import __version__
 from widgets import THEME
@@ -95,7 +99,23 @@ class Bridge(QObject):
 
     @Slot(str)
     def send(self, text: str) -> None:
-        self.win.submit(text)
+        self.win.submit(self.win.compose_attachments(text))
+
+    @Slot()
+    def pickFiles(self) -> None:
+        self._later(self.win.pick_files)
+
+    @Slot(str)
+    def detach(self, path: str) -> None:
+        self.win.detach_file(path)
+
+    @Slot(str, str)
+    def dropData(self, name: str, b64: str) -> None:
+        self.win.drop_data(name, b64)
+
+    @Slot()
+    def openAttachFolder(self) -> None:
+        self._later(self.win.open_attach_folder)
 
     @Slot()
     def talk(self) -> None:
@@ -184,7 +204,14 @@ class Bridge(QObject):
 
 
 class _Page(QWebEnginePage):
+    on_file = None          # appelé avec le chemin d'un fichier ou dossier déposé sur la page
+
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        if url.scheme() == "file" and is_main_frame and self.on_file:
+            path = os.path.abspath(url.toLocalFile())
+            if not os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(web_dir()))):
+                self.on_file(path)
+                return False        # la page reste en place : le fichier est joint, pas ouvert
         if url.scheme() in ("http", "https"):
             QDesktopServices.openUrl(url)      # les liens s'ouvrent dans le navigateur, jamais dans Jimmy
             return False
@@ -197,6 +224,10 @@ class _Page(QWebEnginePage):
 
 
 # ------------------------------------------------------------------ adaptateurs des anciens widgets
+class _AttachSig(QObject):
+    done = Signal(object)
+
+
 class _Chat:
     def __init__(self, emit):
         self.emit = emit
@@ -481,10 +512,14 @@ class WebJimmyWindow(W.JimmyWindow):
         self.input = _Input(em)
         self.route_box = _RouteBox(self)
         self.session_list = _SessionList()
+        self._attach = []                    # pièces jointes en attente d'envoi
+        self._asig = _AttachSig()
+        self._asig.done.connect(self._attached)
         self.sweep = self.logo = self.subtitle = self.chat_frame = _Null()
 
         view = QWebEngineView(self)
         page = _Page(view)
+        page.on_file = lambda path: self.attach_paths([path])
         page.setBackgroundColor(QColor("#0b0d12"))
         view.setPage(page)
         s = page.settings()
@@ -521,11 +556,122 @@ class WebJimmyWindow(W.JimmyWindow):
             "wake_label": self._wake_label(), "psy": self._psy_level() > 0,
         }})
 
+    # ---- à quoi sert l'IA locale : compteurs visibles dans la barre latérale
+    def _push_local_stats(self) -> None:
+        if not hasattr(self, "jsb"):
+            return
+        st = self.cfg.get("local_stats") or {}
+        self.jsb.emit({"t": "localstats", "local": int(st.get("local", 0)), "relay": int(st.get("relay", 0)),
+                       "direct": int(st.get("direct", 0))})
+
+    # ---- pièces jointes : copiées dans un dossier de Jimmy, jointes au message (le chemin reste dans la discussion)
+    @staticmethod
+    def _size_text(n: int) -> str:
+        for unit in ("o", "Ko", "Mo", "Go"):
+            if n < 1024 or unit == "Go":
+                return f"{n:.0f} {unit}" if unit == "o" else f"{n:.1f} {unit}"
+            n /= 1024
+
+    def _attach_dir(self) -> Path:
+        d = data_dir() / "pieces_jointes" / time.strftime("%Y-%m-%d")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @staticmethod
+    def _unique(folder: Path, name: str) -> Path:
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip() or "fichier"
+        target, n = folder / name, 1
+        while target.exists():
+            n += 1
+            target = folder / f"{Path(name).stem} ({n}){Path(name).suffix}"
+        return target
+
+    def attach_paths(self, paths) -> None:
+        """Copie les fichiers (ou dossiers) dans le dossier des pièces jointes, quelle que soit la taille, sans bloquer la fenêtre."""
+        paths = [p for p in paths if p and os.path.exists(p)]
+        if not paths:
+            return
+        dest = self._attach_dir()
+        self.jsb.emit({"t": "toast", "text": f"Copie de {len(paths)} élément(s) en cours…"})
+
+        def work() -> None:
+            items = []
+            for src in paths:
+                try:
+                    target = self._unique(dest, os.path.basename(src.rstrip("\\/")))
+                    if os.path.isdir(src):
+                        shutil.copytree(src, target)
+                        size = sum(f.stat().st_size for f in target.rglob("*") if f.is_file())
+                    else:
+                        shutil.copy2(src, target)
+                        size = target.stat().st_size
+                    items.append({"name": target.name, "path": str(target), "size": size})
+                except Exception as e:  # noqa: BLE001
+                    items.append({"error": f"{os.path.basename(src)} : {e}"})
+            self._asig.done.emit(items)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _attached(self, items) -> None:
+        for it in items:
+            if "error" in it:
+                self.jsb.emit({"t": "toast", "text": "Copie impossible : " + it["error"], "err": True})
+            else:
+                self._attach.append(it)
+        self._emit_attached()
+        ok = [i for i in items if "error" not in i]
+        if ok:
+            self.jsb.emit({"t": "toast", "text": f"{len(ok)} fichier(s) joint(s) : ils partiront avec ton prochain message."})
+
+    def _emit_attached(self) -> None:
+        if hasattr(self, "jsb"):
+            self.jsb.emit({"t": "attached", "items": [{"name": i["name"], "path": i["path"], "size": self._size_text(i["size"])}
+                                                       for i in self._attach]})
+
+    def pick_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(self, "Joindre des fichiers")
+        self.attach_paths(paths)
+
+    def drop_data(self, name: str, b64: str) -> None:
+        """Repli : fichier déposé dont le chemin n'est pas connu, reçu en base64 depuis la page."""
+        try:
+            target = self._unique(self._attach_dir(), name)
+            target.write_bytes(base64.b64decode(b64))
+            self._attached([{"name": target.name, "path": str(target), "size": target.stat().st_size}])
+        except Exception as e:  # noqa: BLE001
+            self.jsb.emit({"t": "toast", "text": f"Fichier non joint : {e}", "err": True})
+
+    def detach_file(self, path: str) -> None:
+        self._attach = [i for i in self._attach if i["path"] != path]
+        self._emit_attached()
+
+    def open_attach_folder(self) -> None:
+        d = data_dir() / "pieces_jointes"
+        d.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(d))
+
+    def compose_attachments(self, text: str) -> str:
+        """Ajoute au message la liste des fichiers joints (avec leur chemin) et les note en mémoire pour les retrouver plus tard."""
+        items, self._attach = self._attach, []
+        if not items:
+            return text
+        self._emit_attached()
+        lines = "\n".join(f"- {i['path']} ({self._size_text(i['size'])})" for i in items)
+        base = text.strip() or "Regarde les fichiers joints."
+        try:
+            import jimmy_mem
+            jimmy_mem.add_note(f"Pièces jointes du {time.strftime('%d/%m/%Y %H:%M')}",
+                               f"Jointes à la demande « {base[:100]} » :\n{lines}", projet="Pièces jointes", tags="pieces-jointes")
+        except Exception:  # noqa: BLE001
+            pass
+        return f"{base}\n\n[Fichiers joints, copiés par Jimmy dans son dossier des pièces jointes :\n{lines}\n]"
+
     def _push_all(self) -> None:
         """La page vient de se charger : on lui renvoie l'état courant."""
         self._refresh_folder_label()
         self._refresh_ctx()
         self._refresh_placeholder()
+        self._push_local_stats()
+        self._emit_attached()
         self.refresh_sessions()
         self.refresh_usage()
         self.set_state(self.listener.state if self.listener.state not in ("loading", "sent") else "loading")

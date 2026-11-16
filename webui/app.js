@@ -4,7 +4,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let bridge = null;
 const S = { state: "loading", sessions: [], current: "", filter: "", level: 0, lastLevel: 0, prefs: {}, listening: false, muted: false,
-            stepsBox: null, stepsCount: 0, live: null, liveQueue: [], stick: true, talkText: "Parler" };
+            attached: [], stepsBox: null, stepsCount: 0, live: null, liveQueue: [], stick: true, talkText: "Parler" };
 
 const STATE_NAMES = { error: "Problème", loading: "Démarrage", wake: "En veille", idle: "Prêt", listening: "J'écoute", thinking: "Je travaille", speaking: "Je réponds", muted: "Micro coupé", sent: "Envoyé" };
 
@@ -186,11 +186,41 @@ $("#searchSessions").oninput = e => { S.filter = e.target.value; renderSessions(
 const input = $("#input");
 function fit() { input.style.height = "auto"; input.style.height = Math.min(220, input.scrollHeight) + "px"; }
 input.addEventListener("input", fit);
-function send() { const t = input.value.trim(); if (!t) return; input.value = ""; fit(); $("#preview").hidden = true; S.stick = true; call("send", t); }
+function send() { const t = input.value.trim(); if (!t && !S.attached.length) return; input.value = ""; fit(); $("#preview").hidden = true; S.stick = true; call("send", t); }
 input.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("#btnSend").onclick = send;
+$("#btnAttach").onclick = () => call("pickFiles");
+$("#btnAttachFolder").onclick = () => call("openAttachFolder");
+function renderChips() {
+  const box = $("#chips"); box.innerHTML = ""; box.hidden = !S.attached.length;
+  for (const f of S.attached) {
+    const c = document.createElement("div"); c.className = "chip"; c.title = f.path;
+    c.innerHTML = "<b></b><span></span><button aria-label='Retirer'>\u00d7</button>";
+    $("b", c).textContent = f.name; $("span", c).textContent = f.size;
+    $("button", c).onclick = () => call("detach", f.path);
+    box.appendChild(c);
+  }
+}
+/* glisser-déposer : la page ne bloque rien, Jimmy récupère le vrai chemin du fichier ; repli par lecture directe si besoin */
+let dragDepth = 0;
+window.addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; $("#dropHint").hidden = false; } });
+window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("#dropHint").hidden = true; });
+window.addEventListener("drop", e => {
+  dragDepth = 0; $("#dropHint").hidden = true;
+  const files = e.dataTransfer ? [...e.dataTransfer.files] : []; if (!files.length) return;
+  const before = S.attached.length;
+  setTimeout(() => {
+    if (S.attached.length > before) return;          /* Jimmy a déjà joint les fichiers (chemin réel) */
+    for (const f of files) {
+      if (f.size > 40 * 1024 * 1024) { toast(f.name + " est trop gros pour ce mode : utilise le bouton trombone.", true); continue; }
+      const r = new FileReader();
+      r.onload = () => call("dropData", f.name, String(r.result).split(",")[1] || "");
+      r.readAsDataURL(f);
+    }
+  }, 900);
+});
 $("#btnTalk").onclick = () => call("talk");
 $("#btnMute").onclick = () => { S.muted = !S.muted; updateTalk(); call("mute", S.muted); };
 $("#btnStop").onclick = () => call("stop");
@@ -224,7 +254,7 @@ function applyPrefs(p) {
   fillSelect($("#selModel"), p.models, p.model || ""); fillSelect($("#selEffort"), p.efforts, p.effort || "");
   fillSelect($("#selVoice"), p.voices.map(v => [v, v]), p.voice_preset);
   $$("#voiceMenu input[data-k]").forEach(i => i.checked = !!p.toggles[i.dataset.k]);
-  $("#routeSeg").hidden = !p.local_enabled; $("#btnLocal").hidden = !!p.local_enabled; $("#swLocal").checked = !!p.local_enabled; setRoute(p.route);
+  $("#routeSeg").hidden = !p.local_enabled; $("#localStats").hidden = !p.local_enabled; $("#btnLocal").hidden = !!p.local_enabled; $("#swLocal").checked = !!p.local_enabled; setRoute(p.route);
   $("#wakeWord").textContent = p.wake_label;
   document.body.classList.toggle("psy", !!p.psy);
 }
@@ -257,6 +287,8 @@ function onEvent(e) {
     case "restart_needed": $("#restartBanner").hidden = false; break;
     case "swap": chat.style.opacity = 0; requestAnimationFrame(() => { chat.style.transition = "opacity .45s"; chat.style.opacity = 1; setTimeout(() => chat.style.transition = "", 500); }); break;
     case "focus": input.focus(); break;
+    case "attached": S.attached = e.items || []; renderChips(); break;
+    case "localstats": { const n = e.local + e.relay + e.direct; $("#localStatsText").textContent = n ? `${e.local} réponses seule \u00b7 ${e.relay} relais \u00b7 ${e.direct} direct à Claude` : "aucune demande pour l'instant"; break; }
     case "toast": toast(e.text, e.err); break;
     case "psy": document.body.classList.toggle("psy", e.level > 0); break;
   }

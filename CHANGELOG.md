@@ -1,5 +1,12 @@
 ﻿# Historique des versions
 
+## 2.0.3
+- **Pièces jointes** : bouton trombone et glisser-déposer dans la zone de texte. Les fichiers (ou dossiers) sont copiés, quelle que soit leur taille, dans le dossier des pièces jointes de Jimmy (bouton « Pièces jointes » de la barre latérale pour l'ouvrir). Ils s'affichent en puces sous le message, et leur chemin reste écrit dans la discussion ; une note en mémoire permet aussi de les retrouver plus tard (« où est le fichier que je t'ai envoyé ? »). Les originaux ne sont jamais touchés ; deux fichiers de même nom ne s'écrasent pas.
+- **Haiku pour les tâches simples** : Claude délègue maintenant la recherche de fichiers, l'exploration du code, la lecture et les tâches simples à un sous-agent Haiku, et garde son modèle pour raisonner et modifier. Ça économise le quota. Réglage `haiku_helper` (activé par défaut), et la règle est aussi notée en mémoire.
+- **On voit ce que fait l'IA locale** : un compteur dans la barre latérale (réponses données seule, relais vers Claude, demandes envoyées directement à Claude). Les demandes clairement lourdes (code, serveur, base de données, longs textes) vont directement à Claude, sans perdre de temps à essayer en local.
+- **Les deux IA se parlent** : ce que l'IA locale a répondu est transmis à Claude au prochain message, et ce que Claude répond est transmis à l'IA locale, pour qu'elles gardent le même fil.
+- Nouveau test `test_attach.py` ; `test_local_flow.py` vérifie aussi les compteurs.
+
 ## 2.0.2
 - **Menus cliquables** : le menu « Voix et écoute » était recouvert par la zone de discussion (aucun clic ne passait sur la voix, ni sur les interrupteurs). Corrigé et vérifié contrôle par contrôle. Les fenêtres de Réglages, de renommage et de choix du dossier s'ouvrent maintenant hors de l'appel venu de la page, ce qui évite qu'elles bloquent les clics.
 - **Activer l'IA locale d'un clic** : un bouton « Activer l'IA locale » dans la barre du haut (et un interrupteur dans le menu) active le mode Auto sans passer par les Réglages, et dit tout de suite si un moteur local répond.

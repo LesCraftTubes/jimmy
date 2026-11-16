@@ -89,6 +89,15 @@ _REFUS = re.compile(
 _VIDE = ("", "(pas de réponse)", "Je n'ai pas réussi à conclure en quelques étapes.")
 
 
+_LOURD = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.[ée]cri|architecture|\bbug\b|plante|corrige (le|la|les|mon|ma)|"
+                    r"ajoute (une|un) (fonction|page|syst.me|commande)|\bskript\b|\.sk\b|release|publie|github|mise . jour|installe|plugin|boss|combat)", re.I)
+
+
+def needs_claude(text: str) -> bool:
+    """Demande clairement trop lourde pour un petit modèle (code, serveur, base de données...) : Claude directement, sans détour."""
+    return len(text or "") > 600 or bool(_LOURD.search(text or ""))
+
+
 def is_failure(reply: str) -> bool:
     """La réponse est un refus, un « je ne peux pas » ou du vide : Claude doit reprendre."""
     r = (reply or "").strip()

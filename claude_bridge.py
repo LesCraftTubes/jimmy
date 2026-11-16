@@ -89,6 +89,11 @@ SYSTEM_PROMPT = (
     "et jamais de promesse de résultat « plus tard » ou « à la fin ». "
     "Si une information te manque, pose une seule question courte. "
 )
+# Économie de quota : le gros modèle réfléchit, Haiku (moins cher) fait la recherche et les tâches simples.
+HAIKU_HINT = (
+    " Économie : pour chercher des fichiers, explorer le code, lire, lister ou toute tâche simple, délègue à un "
+    "sous-agent Haiku (outil Agent, type Explore, ou model haiku) ; garde ton modèle pour raisonner et modifier. "
+)
 # Ajouté seulement en mode autonomie (permission_mode = bypassPermissions).
 AUTONOMY_PROMPT = (
     "Accord permanent de l'utilisateur : n'en demande jamais avant d'agir. Modifie, teste, déploie "
@@ -342,7 +347,7 @@ class ClaudeBridge:
         style = LONG_STYLE if self.cfg.get("long_mode") else SHORT_STYLE
         auto = self.cfg.get("permission_mode") == "bypassPermissions"
         system = (IDENTITY + style + SPEECH_RULES + SYSTEM_PROMPT + (AUTONOMY_PROMPT if auto else "")
-                  + _mem_hint() + _music_hint() + _volume_hint() + _discord_hint())
+                  + (HAIKU_HINT if self.cfg.get("haiku_helper", True) else "") + _mem_hint() + _music_hint() + _volume_hint() + _discord_hint())
         projects = [" ".join(l.split()) for l in str(self.cfg.get("projects_text", "")).splitlines() if l.strip()]
         if projects:
             system += (" Carte des dossiers de l'utilisateur (va directement au bon endroit, sans explorer "

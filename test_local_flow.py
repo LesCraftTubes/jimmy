@@ -17,11 +17,12 @@ def check(name, cond):
 
 
 def scenario(route, reason, text, handoff, forced=False):
-    log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0)
+    log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0, stats=[])
     me = SimpleNamespace(
         thinking=True, _local_reason=reason, _local_forced=forced, _last_reply="x", _force_claude=False,
-        _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
+        _local_ctx=[], _local_last_q="ma question", _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
     )
+    me._bump_local = lambda k: log.stats.append(k)
     me.add_message = lambda role, t: log.messages.append((role, t))
     me.add_system = lambda t: log.system.append(t)
     me._finish = lambda: setattr(log, "finished", log.finished + 1)
