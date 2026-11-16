@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 2.5.3
+- **Aurélie cherche vraiment, toute seule, sur un site.** Elle suit en priorité les liens qui parlent du sujet de ta demande (par exemple la page « reliques » quand tu parles de reliques) et lit jusqu'à 20 pages au lieu de s'arrêter à la première. Si l'adresse du site lui manque, elle la cherche (mémoire, recherche) au lieu de te la demander ou d'abandonner.
+- **Plus de faux « j'ai transmis à Claude ».** Quand Aurélie annonçait passer la main sans appeler l'outil, rien n'arrivait chez Claude. Maintenant, si elle le promet, le relais est fait pour de vrai avec ta demande d'origine. Elle a aussi pour consigne de persévérer elle-même (explorer le site, chercher sur Internet, lire les pages) avant de passer la main.
+- Nouveaux tests dans `test_site.py`.
+
 ## 2.5.2
 - **L'IA locale peut parcourir n'importe quel site toute seule.** Nouvel outil « explorer_site » : Aurélie ouvre une page, suit les liens du même site (jusqu'à 12 pages), lit leur texte et cherche les mots utiles, sans rien demander à Jimmy ni à toi. Elle connaît ton site (adresse réglée dans la configuration, fautes de frappe du nom corrigées) et marche aussi pour une documentation, un wiki ou n'importe quelle adresse, avec ou sans « https:// ». Chaque page visitée s'affiche dans l'activité en direct (« Page lue 3/12 »).
 - **Le panneau d'activité défile comme il faut.** Si tu es en bas, il suit : chaque nouveau message apparaît en entier, même quand une ligne grandit après coup. Si tu as remonté pour relire, il ne te force plus à redescendre.
