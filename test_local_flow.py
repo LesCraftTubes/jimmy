@@ -20,7 +20,7 @@ def scenario(route, reason, text, handoff, forced=False):
     log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0, stats=[], dialogs=[])
     me = SimpleNamespace(
         thinking=True, _local_reason=reason, _local_forced=forced, _last_reply="x", _force_claude=False,
-        _local_ctx=[], _local_last_q="redémarre le serveur", _relay_msg="Jimmy, il veut redémarrer le serveur ; je ne sais pas faire, je te passe la main.", _local_name=lambda: "Aurélie", btn_voice=SimpleNamespace(isChecked=lambda: False), _remote_turn=False, chat=SimpleNamespace(next_label=None), _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
+        _announce_handoff=lambda *_a: None, _set_actor=lambda *_a: None, _local_color=lambda: "#4ade80", _local_ctx=[], _local_last_q="redémarre le serveur", _relay_msg="Jimmy, il veut redémarrer le serveur ; je ne sais pas faire, je te passe la main.", _local_name=lambda: "Aurélie", btn_voice=SimpleNamespace(isChecked=lambda: False), _remote_turn=False, chat=SimpleNamespace(next_label=None), _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
     )
     me._bump_local = lambda k: log.stats.append(k)
     me.add_dialog = lambda f, t, x: log.dialogs.append((f, t, x))

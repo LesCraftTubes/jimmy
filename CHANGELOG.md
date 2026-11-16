@@ -1,5 +1,12 @@
 ﻿# Historique des versions
 
+## 2.3.0
+- **On voit enfin qui travaille : Jimmy et Aurélie côte à côte en haut de la fenêtre.** Chacun a sa carte avec son voyant : celui qui travaille s'allume (halo, anneau qui tourne, « travaille… » ou « parle… »), l'autre se grise (« attend » ou « en veille »). L'orbe prend aussi la couleur de celui qui travaille, et le titre dit « Aurélie travaille » ou « Jimmy travaille ».
+- **Les passages de l'un à l'autre se voient** : quand Aurélie passe la main à Jimmy (ou que Jimmy lui demande de chercher, puis qu'elle lui rend sa réponse), une lumière traverse le lien entre les deux cartes, et une ligne colorée apparaît dans la discussion : « Aurélie → Jimmy · ça dépasse ses moyens ».
+- **La couleur d'Aurélie se choisit** : menu des thèmes, 8 couleurs ou n'importe quelle autre. Elle est utilisée partout : carte, voyant, messages, lien, statistiques, bouton Auto.
+- **Les thèmes changent beaucoup plus que les boutons** : la couleur choisie teinte maintenant toute l'interface (fonds, barre latérale, barre du haut, bulles, zone d'écriture, bordures, barres de défilement), avec un curseur « Teinte de l'interface » de 0 à 100 %. Quatre ambiances de fond (Uni, Halo, Grille, Aurore animée) et trois arrondis (Net, Doux, Rond). Tout se retient d'une fois sur l'autre.
+- **Aurélie ne parle plus d'elle à la troisième personne** : sa consigne dit maintenant que « je » c'est elle, et qu'elle ne dit jamais « Aurélie a fait » ou « l'IA locale a fait ».
+
 ## 2.2.1
 - **Aurélie ne se fait plus passer pour Jimmy** : l'étiquette « [Jimmy a répondu] » que j'avais mise dans son historique était recopiée dans ses propres réponses, ce qui donnait l'impression d'un faux. Le fil de la discussion est maintenant donné à Aurélie à part (« Utilisateur : ... / Jimmy : ... ») et non comme de faux tours de parole, elle relit toujours les derniers messages avant de répondre, et si une étiquette de ce genre apparaît quand même, elle est retirée avant l'affichage.
 - **Plus d'appli inventée** : Aurélie avait répondu que l'appli mobile se télécharge sur le Google Play Store. Faux : l'appli mobile de Jimmy est une page web. Bouton « Appli mobile » dans Jimmy, scanner le QR code ou ouvrir le lien sur le téléphone, autoriser l'appareil sur le PC, puis « Ajouter à l'écran d'accueil » dans le navigateur. Elle connaît maintenant cette procédure et n'en invente plus d'autre.

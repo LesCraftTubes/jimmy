@@ -28,6 +28,14 @@
           <div class="opts" id="modeOpts"><button data-mode="dark">Sombre</button><button data-mode="light">Clair</button></div>
           <div class="menu-title">Couleur</div>
           <div class="accents" id="accentOpts"></div>
+          <div class="menu-title" id="localColorTitle">Couleur d'Aurélie</div>
+          <div class="swatches" id="localColors"></div>
+          <div class="menu-title">Teinte de l'interface<em id="tintVal"></em></div>
+          <input type="range" id="tint" min="0" max="100" step="5" aria-label="Intensité de la teinte">
+          <div class="menu-title">Ambiance</div>
+          <div class="opts" id="ambOpts"><button data-amb="none">Uni</button><button data-amb="halo">Halo</button><button data-amb="grid">Grille</button><button data-amb="aurora">Aurore</button></div>
+          <div class="menu-title">Arrondis</div>
+          <div class="opts" id="roundOpts"><button data-round="sharp">Net</button><button data-round="soft">Doux</button><button data-round="pill">Rond</button></div>
         </div>
       </div>
       <button class="icon-btn" id="btnTheme" hidden title="Thème clair / sombre" aria-label="Thème"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
@@ -61,6 +69,12 @@
       <div class="status-pill" id="statusPill" data-state="loading">
         <canvas id="orb" width="88" height="88"></canvas>
         <div class="status-text"><b id="stateName">Démarrage</b><span id="statusLbl">Chargement…</span></div>
+      </div>
+
+      <div class="duo" id="duo" hidden aria-label="Qui travaille">
+        <div class="agent" id="agJimmy" data-who="jimmy"><i class="dot"></i><div><b>Jimmy</b><span>en veille</span></div></div>
+        <div class="link" id="duoLink"><i></i></div>
+        <div class="agent" id="agLocal" data-who="local"><i class="dot"></i><div><b id="agLocalName">Aurélie</b><span>en veille</span></div></div>
       </div>
 
       <div class="top-right">

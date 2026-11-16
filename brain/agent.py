@@ -160,7 +160,9 @@ class LocalAgent:
 
     # ------------------------------------------------------------------ une demande
     def _system(self, user_text: str) -> str:
-        parts = [BASE_PROMPT]
+        name = str(self.cfg.get("local_name") or "Aurélie")
+        parts = [BASE_PROMPT + f" Tu t'appelles {name}. « je » = toi : ne parle JAMAIS de {name} ni de « l'IA locale » à la troisième personne, "
+                 f"ne dis pas « {name} a fait », dis « j'ai fait »."]
         extra = str(self.cfg.get("custom_prompt") or "").strip()
         if extra:
             parts.append("Consignes de l'utilisateur :\n" + extra)

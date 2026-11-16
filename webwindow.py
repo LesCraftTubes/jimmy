@@ -107,6 +107,12 @@ class Bridge(QObject):
             self.win.cfg.set("accent", name)
             self._later(lambda: (self.win._apply_look(), self.win._apply_psychosis()))
 
+    @Slot(str)
+    def setLocalColor(self, color: str) -> None:
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", color or ""):
+            self.win.cfg.set("local_color", color.lower())
+            self._later(self.win._push_prefs)
+
     @Slot()
     def checkUpdate(self) -> None:
         self.win.check_update_now()
@@ -642,7 +648,17 @@ class WebJimmyWindow(W.JimmyWindow):
             "local_enabled": bool(cfg.get("local_enabled", False)), "route": cfg.get("route", "claude"),
             "wake_label": self._wake_label(), "psy": self._psy_level() > 0, "psy_level": float(self._psy_level()),
             "accents": [[n, a, b] for n, (a, b) in ACCENTS.items()], "accent_name": cfg.get("accent"),
+            "local_color": self._local_color(), "local_name": self._local_name(),
         }})
+
+    # ---- qui travaille : Jimmy ou l'IA locale (affiché en haut de la fenêtre, avec les passages de l'un à l'autre)
+    def _set_actor(self, who: str, why: str = "") -> None:
+        self._actor = who
+        self.jsb.emit({"t": "actor", "who": who, "why": why})
+
+    def _announce_handoff(self, frm: str, to: str, why: str = "") -> None:
+        self.jsb.emit({"t": "handoff", "from": frm, "to": to, "why": why})
+        self._set_actor(to)
 
     # ---- bouton « Vérifier les mises à jour » : cherche, et s'il y en a une, télécharge et lance l'installation tout de suite
     def check_update_now(self) -> None:

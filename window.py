@@ -1,5 +1,6 @@
 """Fenêtre principale de Jimmy et orchestration : écoute -> Claude Code -> voix."""
 import os
+import re
 import sys
 import threading
 import time
@@ -1236,7 +1237,7 @@ class JimmyWindow(QMainWindow):
         if role == "user":
             self.chat.add_user(text)
         elif role == "local":
-            self.chat.add_assistant(text, f"{self._local_name().upper()} \u00b7 IA LOCALE", "#4ade80")
+            self.chat.add_assistant(text, f"{self._local_name().upper()} \u00b7 IA LOCALE", self._local_color())
         else:
             self.chat.add_assistant(text)
 
@@ -1419,6 +1420,7 @@ class JimmyWindow(QMainWindow):
         if self._local_ctx and consent is None:
             prompt = ("[Contexte : l'IA locale de Jimmy a déjà répondu entre-temps : " + " | ".join(self._local_ctx) + "]\n\n" + prompt)
             self._local_ctx = []
+        self._set_actor("jimmy")
         threading.Thread(target=self._work, args=(prompt, consent), daemon=True).start()
 
     def _work(self, text: str, consent=None) -> None:
@@ -1471,6 +1473,7 @@ class JimmyWindow(QMainWindow):
             text = parts[1] if len(parts) > 1 else ""
         self._local_reason = ""
         self._local_last_q = text
+        self._set_actor("local")
         threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
 
     def _ensure_local_agent(self) -> str:
@@ -1484,6 +1487,17 @@ class JimmyWindow(QMainWindow):
 
     def _local_name(self) -> str:
         return str(self.cfg.get("local_name") or "Aurélie")
+
+    def _local_color(self) -> str:
+        c = str(self.cfg.get("local_color") or "#4ade80")
+        return c if re.fullmatch(r"#[0-9a-fA-F]{6}", c) else "#4ade80"
+
+    # Qui travaille : l'interface web montre Jimmy et l'IA locale côte à côte (surchargé dans webwindow)
+    def _set_actor(self, who: str, why: str = "") -> None:
+        pass
+
+    def _announce_handoff(self, frm: str, to: str, why: str = "") -> None:
+        pass
 
     def _seed_local_context(self) -> None:
         """Avant chaque réponse d'Aurélie : elle relit le fil réel de la discussion (utilisateur et Jimmy).
@@ -1571,7 +1585,7 @@ class JimmyWindow(QMainWindow):
             self.listener.pause()
             self._last_reply = text
             self._live_text = text
-            self.chat.next_label = (f"{self._local_name().upper()} \u00b7 IA LOCALE", "#4ade80")
+            self.chat.next_label = (f"{self._local_name().upper()} \u00b7 IA LOCALE", self._local_color())
             self.chat.begin_live()
             self.speaking = True
             self.set_state("speaking")
@@ -1584,6 +1598,7 @@ class JimmyWindow(QMainWindow):
                 from brain import dialogue
                 msg = dialogue.fallback_message(self._local_last_q, [], reason, self._local_name())
             self._relay_msg = ""
+            self._announce_handoff("local", "jimmy", self._HANDOFF_WHY.get(reason, "ça dépasse ses moyens"))
             self.add_dialog("local", "jimmy", msg)        # l'IA locale PARLE à Jimmy, en vraies phrases
             self._finish()
 
@@ -1603,7 +1618,7 @@ class JimmyWindow(QMainWindow):
         names = {"local": name, "jimmy": "Jimmy"}
         self._remote_emit({"type": "message", "role": "assistant", "text": f"{names[frm]} \u2192 {names[to]} : {text}"})
         if hasattr(self.chat, "add_dialog"):
-            self.chat.add_dialog(frm, to, names[frm], names[to], text, "#4ade80" if frm == "local" else "")
+            self.chat.add_dialog(frm, to, names[frm], names[to], text, self._local_color() if frm == "local" else "")
         else:
             self.add_message("assistant", f"{names[frm]} \u2192 {names[to]} : {text}")
 
@@ -1615,6 +1630,7 @@ class JimmyWindow(QMainWindow):
         Les deux messages (la demande, puis la réponse) s'affichent dans la discussion."""
         if not self.cfg.get("local_enabled", False):
             return "L'IA locale est désactivée : fais ce travail toi-même."
+        self._announce_handoff("jimmy", "local", "il lui demande de chercher")
         self.sig.dialog.emit("jimmy", "local", question)
         try:
             with self._local_lock:
@@ -1630,6 +1646,7 @@ class JimmyWindow(QMainWindow):
         except Exception as e:  # noqa: BLE001
             ans = f"J'ai rencontré une erreur : {e}. Fais-le toi-même."
         self.sig.dialog.emit("local", "jimmy", ans)
+        self._announce_handoff("local", "jimmy", "elle lui rend sa réponse")
         self._bump_local("delegated")
         return ans
 
@@ -1760,6 +1777,7 @@ class JimmyWindow(QMainWindow):
         self._finish()
 
     def _finish(self) -> None:
+        self._set_actor("idle")
         self.busy = False
         self.thinking = False
         self.speaking = False

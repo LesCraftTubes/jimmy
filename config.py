@@ -47,6 +47,7 @@ ACCENTS = {
 DEFAULTS = {
     # Apparence et effets
     "accent": "Cyan néon",
+    "local_color": "#4ade80",  # couleur d'Aurélie (IA locale) : cartes, messages, voyants
     "effects": True,           # balayages, éclairs, animations
     "orb_sides": True,         # flux de données à gauche et à droite de l'orbe
     "orb_sats": True,          # petits satellites autour de l'orbe

@@ -97,7 +97,7 @@ function addMsg(role, text, label, color) {
 function addDialog(e) {
   closeSteps();
   const d = document.createElement("div"); d.className = "msg assistant dialog " + (e.from === "local" ? "from-local" : "from-jimmy");
-  d.style.setProperty("--c", e.color || "");
+  d.style.setProperty("--c", e.from === "local" ? "var(--local)" : (e.color || ""));
   d.innerHTML = '<div class="who"><i></i><b></b><em></em></div><div class="body"></div>';
   $("b", d).textContent = e.who.toUpperCase(); $("em", d).textContent = "\u2192 " + e.whom;
   $(".body", d).innerHTML = markdown(e.text);
@@ -172,7 +172,8 @@ function drawOrb(ts) {
   octx = psy > 0.02 ? octxBuf : octxReal;
   octx.clearRect(0, 0, w, h);
   const lvl = Math.min(1, S.level * 14); S.level *= 0.88;
-  let base = { loading: "#6b7490", wake: cssv("--accent"), idle: cssv("--accent"), listening: cssv("--ok"), thinking: cssv("--accent"), speaking: cssv("--accent2"), muted: cssv("--bad"), sent: cssv("--accent") }[st] || cssv("--accent");
+  const who = S.actor === "local" ? cssv("--local") : cssv("--accent");
+  let base = { loading: "#6b7490", wake: cssv("--accent"), idle: cssv("--accent"), listening: cssv("--ok"), thinking: who, speaking: S.actor === "local" ? who : cssv("--accent2"), muted: cssv("--bad"), sent: who }[st] || cssv("--accent");
   if (psy > 0.02) base = mixRed(base, Math.min(0.9, psy * (0.45 + 0.2 * Math.sin(t * 9) * Math.sin(t * 3.1))));
   let r = w * 0.2, pulse = 0;
   if (st === "listening") pulse = lvl * 0.22; else if (st === "speaking") pulse = (0.08 + 0.07 * Math.sin(t * 9)) ; else if (st === "wake" || st === "idle") pulse = 0.03 * Math.sin(t * 1.6); else if (st === "thinking") pulse = 0.04 * Math.sin(t * 5);
@@ -203,7 +204,42 @@ requestAnimationFrame(drawOrb);
 function setState(st) {
   S.state = st; const pill = $("#statusPill"); pill.dataset.state = st; pill.classList.remove("warn");
   $("#stateName").textContent = STATE_NAMES[st] || st;
-  updateTalk();
+  updateTalk(); refreshDuo();
+}
+/* ------------------------------------------------------------------ qui travaille : Jimmy et l'IA locale, côte à côte */
+S.actor = "idle"; S.localName = "Aurélie";
+function agentText(who) {
+  const on = S.actor === who, st = S.state;
+  if (S.actor === "idle") return st === "listening" ? (who === "jimmy" ? "j'écoute" : "en veille") : "en veille";
+  if (!on) return "attend";
+  return st === "speaking" ? "parle…" : "travaille…";
+}
+function refreshDuo() {
+  const duo = $("#duo"); if (!duo) return;
+  for (const who of ["jimmy", "local"]) {
+    const el = $(who === "jimmy" ? "#agJimmy" : "#agLocal"), on = S.actor === who;
+    el.classList.toggle("on", on); el.classList.toggle("speaking", on && S.state === "speaking");
+    $("span", el).textContent = agentText(who);
+  }
+  $("#agLocalName").textContent = S.localName;
+  const nm = $("#stateName");
+  nm.textContent = S.actor === "local" && S.state === "thinking" ? S.localName + " travaille"
+    : S.actor === "local" && S.state === "speaking" ? S.localName + " répond" : (STATE_NAMES[S.state] || S.state);
+  document.documentElement.dataset.actor = S.actor; $("#statusPill").dataset.actor = S.actor;
+}
+let linkTimer = 0;
+function showHandoff(e) {
+  const to = e.to, from = e.from, link = $("#duoLink");
+  S.actor = to; refreshDuo();
+  link.classList.remove("go-ltr", "go-rtl"); void link.offsetWidth;
+  link.classList.add(from === "jimmy" ? "go-ltr" : "go-rtl");
+  clearTimeout(linkTimer); linkTimer = setTimeout(() => link.classList.remove("go-ltr", "go-rtl"), 2400);
+  const nm = w => w === "jimmy" ? "Jimmy" : S.localName, col = w => w === "jimmy" ? "var(--accent)" : "var(--local)";
+  closeSteps();
+  const d = document.createElement("div"); d.className = "xfer"; d.style.setProperty("--from", col(from)); d.style.setProperty("--to", col(to));
+  d.innerHTML = '<span class="mid"><b class="f"></b><span>\u2192</span><b class="t"></b><em></em></span>';
+  $("b.f", d).textContent = nm(from); $("b.t", d).textContent = nm(to); $("em", d).textContent = e.why ? "\u00b7 " + e.why : "";
+  chat.appendChild(d); refreshEmpty(); scrollDown(true);
 }
 function updateTalk() {
   const b = $("#btnTalk"), listening = S.listening || S.state === "listening";
@@ -313,7 +349,31 @@ $("#btnThemeMenu").onclick = e => { e.stopPropagation(); tm.hidden = !tm.hidden;
 document.addEventListener("click", e => { if (!tm.hidden && !e.target.closest("#themeWrap")) tm.hidden = true; });
 $$("#lookOpts button").forEach(b => b.onclick = () => { setLook(b.dataset.look); renderThemeMenu(); });
 $$("#modeOpts button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+const LOCAL_COLORS = ["#4ade80", "#00f0ff", "#ff4fd8", "#fbbf24", "#fb7185", "#a78bfa", "#38bdf8", "#f97316"];
+const UI = { t: 40, amb: "none", round: "soft" };
+try { UI.t = Number(localStorage.getItem("jimmy-tint") ?? 40); UI.amb = localStorage.getItem("jimmy-amb") || "none"; UI.round = localStorage.getItem("jimmy-round") || "soft"; } catch (e) {}
+function applyUI() {
+  const h = document.documentElement; h.style.setProperty("--t", UI.t); h.dataset.amb = UI.amb; h.dataset.round = UI.round;
+  try { localStorage.setItem("jimmy-tint", UI.t); localStorage.setItem("jimmy-amb", UI.amb); localStorage.setItem("jimmy-round", UI.round); } catch (e) {}
+}
+applyUI();
+$("#tint").oninput = e => { UI.t = Number(e.target.value); applyUI(); $("#tintVal").textContent = UI.t + " %"; };
+$$("#ambOpts button").forEach(b => b.onclick = () => { UI.amb = b.dataset.amb; applyUI(); renderThemeMenu(); });
+$$("#roundOpts button").forEach(b => b.onclick = () => { UI.round = b.dataset.round; applyUI(); renderThemeMenu(); });
+function renderLocalColors() {
+  const box = $("#localColors"); box.innerHTML = ""; const cur = (S.prefs.local_color || "").toLowerCase();
+  for (const c of LOCAL_COLORS) {
+    const b = document.createElement("button"); b.className = "sw" + (c === cur ? " on" : ""); b.style.background = c; b.style.color = c; b.title = c;
+    b.onclick = () => call("setLocalColor", c); box.appendChild(b);
+  }
+  const inp = document.createElement("input"); inp.type = "color"; inp.value = /^#[0-9a-f]{6}$/i.test(cur) ? cur : "#4ade80"; inp.title = "Autre couleur";
+  inp.onchange = () => call("setLocalColor", inp.value); box.appendChild(inp);
+}
 function renderThemeMenu() {
+  $("#tint").value = UI.t; $("#tintVal").textContent = UI.t + " %";
+  $$("#ambOpts button").forEach(b => b.classList.toggle("on", b.dataset.amb === UI.amb));
+  $$("#roundOpts button").forEach(b => b.classList.toggle("on", b.dataset.round === UI.round));
+  $("#localColorTitle").textContent = "Couleur de " + S.localName; renderLocalColors();
   const look = document.documentElement.dataset.look, mode = document.documentElement.dataset.theme;
   $$("#lookOpts button").forEach(b => b.classList.toggle("on", b.dataset.look === look));
   $$("#modeOpts button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
@@ -336,6 +396,9 @@ function applyPrefs(p) {
   r.setProperty("--accent", p.accent[0]); r.setProperty("--accent2", p.accent[1]);
   r.setProperty("--neon-a", p.accent[0]); r.setProperty("--neon-b", p.accent[0].toLowerCase() === "#22d3ee" ? "#ff2bd6" : p.accent[1]); r.setProperty("--chat-size", (p.chat_font || 15) + "px");
   $("#version").textContent = "version " + p.version;
+  S.localName = p.local_name || "Aurélie";
+  if (p.local_color) r.setProperty("--local", p.local_color);
+  $("#duo").hidden = !p.local_enabled; refreshDuo();
   fillSelect($("#selModel"), p.models, p.model || ""); fillSelect($("#selEffort"), p.efforts, p.effort || "");
   fillSelect($("#selVoice"), p.voices.map(v => [v, v]), p.voice_preset);
   $$("#voiceMenu input[data-k]").forEach(i => i.checked = !!p.toggles[i.dataset.k]);
@@ -350,6 +413,8 @@ function onEvent(e) {
   switch (e.t) {
     case "prefs": applyPrefs(e.p); break;
     case "state": setState(e.state); break;
+    case "actor": S.actor = e.who || "idle"; refreshDuo(); break;
+    case "handoff": showHandoff(e); break;
     case "status": $("#statusLbl").textContent = e.text; break;
     case "msg": e.role === "user" ? addMsg("user", e.text) : addMsg("assistant", e.text, e.label, e.color); break;
     case "system": addSystem(e.text); break;
