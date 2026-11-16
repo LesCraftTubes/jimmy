@@ -64,6 +64,28 @@ def auto_choice(cfg) -> tuple:
     return "small", "cpu"
 
 
+def decode_audio_bytes(data: bytes):
+    """Son envoyé par un téléphone (webm/opus, mp4/aac, ogg...) -> tableau float32 mono 16 kHz, prêt pour Whisper."""
+    import io
+
+    import av
+    parts = []
+    with av.open(io.BytesIO(data)) as c:
+        res = av.AudioResampler(format="s16", layout="mono", rate=16000)
+        for frame in c.decode(audio=0):
+            out = res.resample(frame)
+            for o in (out if isinstance(out, list) else [out]):
+                if o is not None:
+                    parts.append(o.to_ndarray().reshape(-1))
+        out = res.resample(None)
+        for o in (out if isinstance(out, list) else [out]):
+            if o is not None:
+                parts.append(o.to_ndarray().reshape(-1))
+    if not parts:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(parts).astype(np.float32) / 32768.0
+
+
 def prep_audio(audio):
     """Nettoie le son avant la reconnaissance : enlève le décalage continu et remonte les voix trop basses (micro de casque
     sans fil, voix posée) jusqu'à un niveau où Whisper est le plus précis. Gain limité pour ne pas gonfler le bruit."""
@@ -141,6 +163,7 @@ class Listener(QObject):
         self._flush = threading.Event()   # « valide ce qui a été dit » (2e clic sur Parler)
         self._muted = threading.Event()   # micro coupé : rien n'est écouté, même pas « Jimmy »
         self._wake_on = bool(cfg.get("wake_words_enabled", True))
+        self._phone_lock = threading.Lock()       # une voix de téléphone à la fois
         self.last_wake = ""          # "local" si tu as dit « Hey Aurélie », "claude" si « Hey Jimmy »
         # ~1 min de son en attente : rien n'est perdu pendant qu'une phrase est transcrite.
         self._q = queue.Queue(maxsize=2000)
@@ -654,6 +677,20 @@ class Listener(QObject):
             if ok:
                 return "local" if fold(str(w)).replace(" ", "").endswith("aurelie") else "claude"
         return "claude"
+
+    def transcribe_bytes(self, data: bytes) -> str:
+        """Voix du téléphone -> texte, avec le MÊME modèle précis, le même vocabulaire et les mêmes corrections que le micro du PC."""
+        if self._model is None:
+            raise RuntimeError("La reconnaissance vocale du PC n'est pas encore prête.")
+        audio = decode_audio_bytes(data)
+        if audio.size < 1600:                       # moins de 0,1 s
+            return ""
+        with self._phone_lock:
+            text = self._transcribe(audio, "command")
+        if not text or is_hallucination(text):
+            return ""
+        from textutils import ensure_final_punct
+        return ensure_final_punct(text)
 
     def _vocab(self) -> str:
         """Mots à privilégier : mots d'éveil, vocabulaire de l'utilisateur (réglage « vocab », séparé par des virgules)."""

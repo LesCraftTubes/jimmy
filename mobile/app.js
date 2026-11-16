@@ -199,18 +199,68 @@
 
   // ---------------------------------------------------------------- voix
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micOK = !!SR && window.isSecureContext;
-  $('#btn-mic').hidden = !micOK;
-  if (!micOK && SR) $('#input').placeholder = 'Écris à Jimmy (le micro demande une connexion sécurisée https)';
+  const MR = window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+  let whisper = false;                  // le PC sait transcrire avec Whisper (même qualité que son micro)
+  const micOK = () => window.isSecureContext && (whisper ? !!MR : !!SR);
+  function refreshMic() {
+    $('#btn-mic').hidden = !micOK();
+    if (!window.isSecureContext && (SR || MR)) $('#input').placeholder = 'Écris à Jimmy (le micro demande une connexion sécurisée https)';
+  }
+  refreshMic();
+  fetch('/api/ping').then((r) => r.json()).then((j) => { whisper = !!j.whisper; refreshMic(); }).catch(() => {});
+
+  // --- voix de précision : le téléphone enregistre, le PC transcrit avec Whisper (modèle précis, vocabulaire de l'utilisateur)
+  let wrec = null;
+  async function startWhisper() {
+    if (listening || speaking) return;
+    stopSpeaking();
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch { opts.converse = false; saveOpts(); addBubble('system', 'Micro refusé : autorise-le dans les réglages du navigateur.'); return; }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
+    const chunks = [];
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    wrec = mr; listening = true; $('#live').hidden = false; $('#live').textContent = "J'écoute…"; ui();
+    const AC = window.AudioContext || window.webkitAudioContext, ac = new AC();     /* fin de phrase : un silence après avoir parlé */
+    const an = ac.createAnalyser(); an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize); let spoke = false, quiet = 0; const t0 = Date.now();
+    const tick = () => {
+      if (wrec !== mr) return;
+      an.getByteTimeDomainData(buf);
+      let peak = 0; for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+      if (peak > 14) { spoke = true; quiet = 0; $('#live').textContent = "J'écoute…"; } else if (spoke) quiet += 1;
+      if ((spoke && quiet > 42) || Date.now() - t0 > 45000 || (!spoke && Date.now() - t0 > 9000)) { stopWhisper(spoke); return; }
+      requestAnimationFrame(tick);
+    };
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop()); try { ac.close(); } catch { /* déjà fermé */ }
+      const sendIt = mr._send !== false; wrec = null; listening = false; ui();
+      if (!sendIt || !chunks.length) { $('#live').hidden = true; return; }
+      $('#live').textContent = 'Transcription…';
+      try {
+        const r = await fetch('/api/transcribe', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': mr.mimeType || 'audio/webm' }, body: new Blob(chunks, { type: mr.mimeType }) });
+        const j = await r.json();
+        $('#live').hidden = true;
+        if (j.ok && j.text) sendText(j.text);
+        else if (!j.ok) addBubble('system', 'Transcription impossible : ' + (j.error || r.status));
+        else if (opts.converse && state !== 'thinking') setTimeout(startListening, 600);
+      } catch { $('#live').hidden = true; addBubble('system', 'Impossible de joindre le PC pour transcrire.'); }
+    };
+    mr.start(250); requestAnimationFrame(tick);
+  }
+  function stopWhisper(sendIt) { const mr = wrec; if (!mr) return; mr._send = sendIt !== false; try { mr.stop(); } catch { /* déjà arrêté */ } }
 
   function stopListening(sendIt) {
+    if (wrec) { stopWhisper(sendIt !== false); return; }
     if (!rec) return;
     const r = rec;
     if (!sendIt) lastHeard = '';
     try { r.stop(); } catch { /* déjà arrêté */ }
   }
   function startListening() {
-    if (!micOK || listening || speaking) return;
+    if (!micOK() || listening || speaking) return;
+    if (whisper && MR) { startWhisper(); return; }
     stopSpeaking();
     lastHeard = '';
     rec = new SR();
@@ -329,7 +379,7 @@
     return br ? os + ' (' + br + ')' : os;
   }
   async function pair(code) {
-    const msg = $('#pair-msg'); msg.className = 'msg'; msg.textContent = 'Connexion…';
+    const msg = $('#pair-msg'); msg.className = 'msg'; msg.textContent = "En attente de ton autorisation sur le PC (une fenêtre s'est ouverte dans Jimmy)…";
     try {
       const r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: deviceName() }) });
       const j = await r.json();

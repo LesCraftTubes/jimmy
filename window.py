@@ -288,6 +288,7 @@ class _Signals(QObject):
     remote_switch = Signal(str)
     local_reply = Signal(str, str)   # réponse de l'IA locale, résumé à passer à Claude (ou vide)
     info = Signal(str)               # message système venu d'un fil de travail
+    remote_ask = Signal(object)      # un appareil demande à se relier : à autoriser sur le PC
     dialog = Signal(str, str, str)   # de (local|jimmy), à (local|jimmy), texte : l'IA locale et Jimmy se parlent
 
 
@@ -311,6 +312,7 @@ class JimmyWindow(QMainWindow):
         self.sig.local_reply.connect(self._on_local_reply)
         self.sig.info.connect(self.add_system)
         self.sig.dialog.connect(self._on_dialog)
+        self.sig.remote_ask.connect(self._on_remote_ask)
         self._local_forced = False
         self._local_reason = ""
         self._local_ctx = []        # ce que l'IA locale a dit : Claude le saura à son prochain message
@@ -326,6 +328,8 @@ class JimmyWindow(QMainWindow):
         self._queued = []          # messages écrits pendant que Jimmy travaille
         self._handoff_note = ""    # mini-message à joindre au prochain message (reprise de contexte)
         self._pending_name = None  # (nom, manuel, ancien id) : le nom d'origine à donner à la discussion qui reprend
+        self._to_delete = None     # ancienne discussion à supprimer une fois la nouvelle confirmée
+        self._note_inflight = ""   # mini-message de reprise envoyé mais pas encore confirmé (rejoué si l'envoi échoue)
         self._deferred = None      # discussion pleine rouverte : mémoire + suppression au prochain message
         self._long_retry = False
 
@@ -715,11 +719,7 @@ class JimmyWindow(QMainWindow):
     # -------------------------------------------------------------- discussions
     def refresh_sessions(self) -> None:
         wd = self.bridge.workdir()
-        pn = self._pending_name
-        if pn and self.bridge.session_id and self.bridge.session_id != pn[2]:
-            # la discussion qui reprend garde EXACTEMENT le nom de l'ancienne
-            sessions.set_name(self.bridge.session_id, pn[0], manual=pn[1])
-            self._pending_name = None
+        self._finalize_handoff()
         self.session_list.clear()
         full = sessions.full_ids()
         cache = []
@@ -917,12 +917,27 @@ class JimmyWindow(QMainWindow):
 
     def _do_handoff(self, sid: str, name: str, manual: bool) -> dict:
         """Mémoire d'abord, puis suppression de l'ancienne (copie en corbeille, sauf si désactivé dans les réglages)."""
-        res = sessions.handoff(self.bridge.workdir(), sid, name,
-                               delete=bool(self.cfg.get("handoff_delete", True)),
+        # Rien n'est supprimé tout de suite : l'ancienne reste (grisée) jusqu'à ce que la nouvelle soit confirmée
+        # (fichier présent + une réponse reçue). Si elle ne naît pas (limite d'usage, erreur), rien n'est perdu.
+        res = sessions.handoff(self.bridge.workdir(), sid, name, delete=False,
                                days=int(self.cfg.get("trash_days", 7)))
         self._handoff_note = res["message"]
         self._pending_name = (name, manual, sid)
+        self._to_delete = sid if self.cfg.get("handoff_delete", True) else None
         return res
+
+    def _finalize_handoff(self) -> None:
+        """Appelé quand la nouvelle discussion existe : donne le nom d'origine, puis supprime l'ancienne si tout est confirmé."""
+        wd, new = self.bridge.workdir(), self.bridge.session_id
+        pn = self._pending_name
+        if pn and new and new != pn[2]:
+            sessions.set_name(new, pn[0], manual=pn[1])      # la nouvelle garde EXACTEMENT le nom de l'ancienne
+            self._pending_name = None
+        old = self._to_delete
+        if old and new and new != old and sessions.session_alive(wd, new):
+            self._to_delete = None
+            self._note_inflight = ""
+            sessions.finish_handoff(wd, old, new, days=int(self.cfg.get("trash_days", 7)))
 
     def _handoff(self, forced: bool = False) -> None:
         """Discussion presque pleine : l'essentiel va en mémoire, l'ancienne est supprimée, la suite repart dans une
@@ -1140,6 +1155,33 @@ class JimmyWindow(QMainWindow):
 
     def remote_new(self) -> None:
         self.sig.remote_new.emit()
+
+    def remote_approve(self, name: str, ip: str, ua: str) -> bool:
+        """Appelé depuis le fil du serveur mobile : un nouvel appareil veut se relier. On attend ta réponse sur le PC (60 s)."""
+        req = {"name": name, "ip": ip, "ua": ua, "ev": threading.Event(), "ok": False}
+        self.sig.remote_ask.emit(req)
+        req["ev"].wait(75)
+        return bool(req["ok"])
+
+    def _on_remote_ask(self, req: dict) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Nouvel appareil")
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"Un appareil demande à se relier à Jimmy :\n\n{req['name']}\nadresse : {req['ip']}\n\nC'est bien ton appareil ?")
+        yes = box.addButton("Autoriser", QMessageBox.AcceptRole)
+        box.addButton("Refuser", QMessageBox.RejectRole)
+        box.setDefaultButton(box.buttons()[-1])
+        QTimer.singleShot(60000, box.close)              # sans réponse : refusé
+        self.raise_()
+        self.activateWindow()
+        QApplication.alert(self, 0)
+        box.exec()
+        req["ok"] = box.clickedButton() is yes
+        req["ev"].set()
+
+    def remote_transcribe(self, data: bytes) -> str:
+        """Voix envoyée par le téléphone : transcrite par le PC (modèle précis de Jimmy)."""
+        return self.listener.transcribe_bytes(data)
 
     def remote_switch(self, sid: str) -> None:
         self.sig.remote_switch.emit(sid)
@@ -1373,7 +1415,7 @@ class JimmyWindow(QMainWindow):
             self.refresh_sessions()
         if self._handoff_note and consent is None:
             prompt = self._handoff_note + "\n\n" + prompt
-            self._handoff_note = ""
+            self._note_inflight, self._handoff_note = self._handoff_note, ""
         if self._local_ctx and consent is None:
             prompt = ("[Contexte : l'IA locale de Jimmy a déjà répondu entre-temps : " + " | ".join(self._local_ctx) + "]\n\n" + prompt)
             self._local_ctx = []
@@ -1443,6 +1485,25 @@ class JimmyWindow(QMainWindow):
     def _local_name(self) -> str:
         return str(self.cfg.get("local_name") or "Aurélie")
 
+    def _seed_local_context(self) -> None:
+        """Avant chaque réponse d'Aurélie : elle relit le fil de la discussion (messages de l'utilisateur et de Jimmy).
+
+        Son historique en mémoire vive est perdu au redémarrage ou au changement de discussion : on le reconstruit alors
+        depuis la discussion elle-même, et on y ajoute la reprise de contexte si une nouvelle discussion vient de naître."""
+        agent, sid = self.local_agent, self.bridge.session_id
+        if agent is None:
+            return
+        key = sid or ""
+        if getattr(self, "_local_seed_sid", None) != key or not agent.history:
+            turns = sessions.recent_turns(self.bridge.workdir(), sid, 8) if sid else []
+            note = self._handoff_note or self._note_inflight
+            if note:
+                turns = [{"role": "user", "content": note[:600]},
+                         {"role": "assistant", "content": "[Reprise de contexte reçue, je m'en sers.]"}] + turns
+            if turns or not agent.history:
+                agent.history = turns + [m for m in agent.history if m not in turns]
+            self._local_seed_sid = key
+
     def _relay_text(self, text: str, reason: str, journal=None) -> str:
         """L'IA locale écrit elle-même son message à Jimmy (avec son modèle si elle tourne, sinon une phrase de secours)."""
         from brain import dialogue
@@ -1465,6 +1526,7 @@ class JimmyWindow(QMainWindow):
                     self.sig.failure.emit("IA locale indisponible : " + why)
                 return
             with self._local_lock:
+                self._seed_local_context()
                 reply, handoff = self.local_agent.run(text)
             self._local_reason = self.local_agent.last_reason
             if handoff and auto:
@@ -1558,7 +1620,8 @@ class JimmyWindow(QMainWindow):
                 if why:
                     ans = f"Je suis indisponible ({why}). Fais-le toi-même."
                 else:
-                    self.local_agent.history = self.local_agent.history[-6:]
+                    self._seed_local_context()
+                    self.local_agent.history = self.local_agent.history[-10:]
                     reply, _handoff = self.local_agent.run(question, readonly=True)
                     from brain.agent import is_failure
                     ans = reply if not is_failure(reply) else f"Je n'ai pas réussi ({reply[:200]}). Fais-le toi-même."
@@ -1581,7 +1644,7 @@ class JimmyWindow(QMainWindow):
         """Claude vient de répondre : l'IA locale le sait aussi (elle garde le fil de la conversation)."""
         if self.local_agent is not None and self.cfg.get("local_enabled", False) and self._last_request:
             self.local_agent.history += [{"role": "user", "content": self._last_request[:400]},
-                                         {"role": "assistant", "content": "[Claude a répondu] " + (claude_text or "")[:600]}]
+                                         {"role": "assistant", "content": "[Jimmy a répondu] " + (claude_text or "")[:900]}]
 
     def set_local_enabled(self, on: bool) -> None:
         """Active ou coupe l'IA locale d'un clic (sans passer par les Réglages) et dit tout de suite si le moteur répond."""
@@ -1680,6 +1743,8 @@ class JimmyWindow(QMainWindow):
     def _on_failure(self, msg: str) -> None:
         self.thinking = False
         self.chat.next_label = None
+        if self._note_inflight and not self._handoff_note:
+            self._handoff_note = self._note_inflight     # l'envoi a échoué : la reprise de contexte repartira avec le prochain message
         if "too long" in msg.lower() and not self._long_retry and self._last_request and self.bridge.session_id:
             self._long_retry = True
             req = self._last_request
@@ -1771,7 +1836,9 @@ class JimmyWindow(QMainWindow):
         if self.local_agent:
             self.local_agent.reset()
         self._handoff_note = ""
+        self._note_inflight = ""
         self._pending_name = None
+        self._to_delete = None
         self._deferred = None
         self._refresh_ctx()
         self._clear_chat()

@@ -155,6 +155,16 @@ class RemoteServer:
         if not p or p["expires"] < time.time() or not hmac.compare_digest(code, p["code"]):
             self._fails.setdefault(ip, []).append(time.time())
             return web.json_response({"ok": False, "error": "Code invalide ou expiré."}, status=403)
+        # Chaque nouvel appareil doit être AUTORISÉ sur le PC (une fois) : le code seul ne suffit plus.
+        approve = getattr(self.h, "remote_approve", None)
+        if approve is not None:
+            loop = asyncio.get_running_loop()
+            ok = await loop.run_in_executor(None, approve, name, ip, request.headers.get("User-Agent", "")[:160])
+            if not ok:
+                self._fails.setdefault(ip, []).append(time.time())
+                return web.json_response({"ok": False, "error": "Cet appareil n'a pas été autorisé sur le PC."}, status=403)
+            if self._pair is not p:                          # un autre appareil a utilisé le code pendant l'attente
+                return web.json_response({"ok": False, "error": "Code déjà utilisé : demande un nouveau code."}, status=409)
         self._pair = None                                   # à usage unique
         token = secrets.token_urlsafe(32)
         dev = {"id": secrets.token_hex(4), "name": name, "hash": _hash(token), "created": int(time.time()), "last_seen": int(time.time())}
@@ -164,7 +174,7 @@ class RemoteServer:
 
     async def _ping_handler(self, request: web.Request) -> web.Response:
         from version import __version__
-        return web.json_response({"app": "Jimmy", "version": __version__})
+        return web.json_response({"app": "Jimmy", "version": __version__, "whisper": hasattr(self.h, "remote_transcribe")})
 
     def _auth(self, request: web.Request):
         h = request.headers.get("Authorization", "")
@@ -175,6 +185,22 @@ class RemoteServer:
         if not self._auth(request):
             return web.json_response({"ok": False}, status=401)
         return web.json_response({"ok": True, "state": self.h.remote_snapshot()})
+
+    async def _transcribe_handler(self, request: web.Request) -> web.Response:
+        """Le téléphone envoie sa voix (webm / mp4 / ogg) : le PC la transcrit avec le même modèle précis que son micro."""
+        if not self._auth(request):
+            return web.json_response({"ok": False}, status=401)
+        fn = getattr(self.h, "remote_transcribe", None)
+        if fn is None:
+            return web.json_response({"ok": False, "error": "Transcription indisponible."}, status=501)
+        data = await request.read()
+        if not data or len(data) > 15_000_000:
+            return web.json_response({"ok": False, "error": "Audio vide ou trop long."}, status=400)
+        try:
+            text = await asyncio.get_running_loop().run_in_executor(None, fn, data)
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"ok": False, "error": str(e)[:200]}, status=500)
+        return web.json_response({"ok": True, "text": text})
 
     # ------------------------------------------------------------- WebSocket
     async def _ws_handler(self, request: web.Request) -> web.StreamResponse:
@@ -270,10 +296,11 @@ class RemoteServer:
                 resp.headers["Cache-Control"] = "no-store"
             return resp
 
-        app = web.Application(middlewares=[headers])
+        app = web.Application(middlewares=[headers], client_max_size=16 * 1024 * 1024)
         app.router.add_get("/api/ping", self._ping_handler)
         app.router.add_post("/api/pair", self._pair_handler)
         app.router.add_get("/api/state", self._state_handler)
+        app.router.add_post("/api/transcribe", self._transcribe_handler)
         app.router.add_get("/ws", self._ws_handler)
         md = mobile_dir()
 

@@ -464,6 +464,46 @@ def handoff(workdir: str, session_id: str, name: str, delete: bool = True, days:
     return {"saved": saved, "deleted": deleted, "goal": goal, "message": mini_message(name, goal)}
 
 
+def recent_turns(workdir: str, session_id: str, n: int = 8, clip: int = 500) -> list:
+    """Les `n` derniers messages lisibles de la discussion : [{"role", "content"}], texte raccourci.
+
+    Sert à donner le fil de la conversation à l'IA locale (ce que l'utilisateur a demandé, ce que Jimmy a répondu)."""
+    if not session_id or not re.fullmatch(r"[\w-]+", session_id):
+        return []
+    out = []
+    for role, text in load_messages(workdir, session_id)[-n:]:
+        text = " ".join(str(text).split())
+        if not text:
+            continue
+        if role == "user":
+            text = re.sub(r"^\[Contexte : l'IA locale.*?\]\s*", "", text)
+            out.append({"role": "user", "content": text[:clip]})
+        else:
+            out.append({"role": "assistant", "content": "[Jimmy a répondu] " + text[:clip]})
+    return out
+
+
+def session_alive(workdir: str, session_id: str) -> bool:
+    """La nouvelle discussion existe VRAIMENT sur le disque et Claude y a déjà répondu au moins une fois."""
+    if not session_id or not re.fullmatch(r"[\w-]+", session_id):
+        return False
+    path = project_dir(workdir) / f"{session_id}.jsonl"
+    if not path.is_file():
+        return False
+    return any(d["type"] == "assistant" and _assistant_text((d.get("message") or {}).get("content"))
+               for d in _entries(path))
+
+
+def finish_handoff(workdir: str, old_id: str, new_id: str, days: int = 7) -> bool:
+    """Supprime l'ancienne discussion SEULEMENT quand la nouvelle est confirmée (fichier présent + une réponse reçue).
+
+    Si la nouvelle n'a pas pu naître (limite d'usage, erreur, fermeture) l'ancienne reste, grisée, et rien n'est perdu.
+    Renvoie True si l'ancienne a été supprimée (copie gardée dans la corbeille)."""
+    if not old_id or old_id == new_id or not session_alive(workdir, new_id):
+        return False
+    return delete_session(workdir, old_id, trash=True, days=days)
+
+
 # ------------------------------------------------------------------ ménage des anciennes « Reprise de la discussion précédente »
 def _scan(workdir: str) -> dict:
     """{id: infos} pour toutes les discussions du dossier (pas seulement les 60 de la liste)."""

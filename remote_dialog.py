@@ -55,14 +55,21 @@ class RemoteDialog(QDialog):
         self.r_lan = QRadioButton("Wi-Fi : le téléphone et le PC sont sur le même réseau")
         self.r_tun = QRadioButton("Internet : tunnel gratuit Cloudflare (marche partout, micro du téléphone compris)")
         self.r_cus = QRadioButton("Mon adresse : Tailscale, ZeroTier, domaine perso…")
-        for i, r in enumerate((self.r_lan, self.r_tun, self.r_cus)):
+        self.r_per = QRadioButton("Lien permanent : une adresse fixe sur ton domaine (Cloudflare), qui ne change jamais")
+        for i, r in enumerate((self.r_lan, self.r_tun, self.r_cus, self.r_per)):
             self.modes.addButton(r, i)
             lay.addWidget(r)
         self.url_edit = QLineEdit(str(cfg.get("remote_custom_url", "")))
         self.url_edit.setPlaceholderText("https://jimmy.mondomaine.fr")
         self.url_edit.editingFinished.connect(self._url_changed)
         lay.addWidget(self.url_edit)
-        cur = {"lan": self.r_lan, "tunnel": self.r_tun, "custom": self.r_cus}[manager.mode()]
+        self.perm_host = QLineEdit(str(cfg.get("remote_perm_host", "")) or "jimmy.legendead.fr")
+        self.perm_host.setPlaceholderText("jimmy.mondomaine.fr")
+        lay.addWidget(self.perm_host)
+        self.b_perm = QPushButton("Créer mon lien permanent (une seule connexion à Cloudflare)")
+        self.b_perm.clicked.connect(lambda: self.m.setup_permanent(self.perm_host.text()))
+        lay.addWidget(self.b_perm)
+        cur = {"lan": self.r_lan, "tunnel": self.r_tun, "custom": self.r_cus, "permanent": self.r_per}[manager.mode()]
         cur.setChecked(True)
         self.modes.idToggled.connect(self._mode_changed)
 
@@ -131,7 +138,7 @@ class RemoteDialog(QDialog):
     def _mode_changed(self, idx: int, checked: bool) -> None:
         if not checked:
             return
-        self.cfg.set("remote_mode", ("lan", "tunnel", "custom")[idx])
+        self.cfg.set("remote_mode", ("lan", "tunnel", "custom", "permanent")[idx])
         self.m.apply()
         self.refresh()
 
@@ -153,6 +160,10 @@ class RemoteDialog(QDialog):
         on = bool(self.cfg.get("remote_enabled"))
         self.url_edit.setEnabled(on and self.m.mode() == "custom")
         self.url_edit.setVisible(self.m.mode() == "custom")
+        self.perm_host.setVisible(self.m.mode() == "permanent")
+        self.b_perm.setVisible(self.m.mode() == "permanent")
+        self.b_perm.setEnabled(not self.m.setting_up)
+        self.b_perm.setText("Refaire mon lien permanent" if self.m.permanent_spec() else "Créer mon lien permanent (une seule connexion à Cloudflare)")
         self.status.setText(self.m.status_text())
         url = self.m.pair_url() if on and self.m.server.running else ""
         pm = qr_pixmap(url) if url else None
@@ -171,6 +182,10 @@ class RemoteDialog(QDialog):
         elif self.m.mode() == "tunnel":
             self.hint.setText("L'adresse Internet change à chaque démarrage de Jimmy : il faudra alors re-scanner le QR "
                               "code. Pour une adresse fixe, utilise « Mon adresse » (Tailscale, domaine…).")
+        elif self.m.mode() == "permanent":
+            self.hint.setText("Adresse fixe, même après un redémarrage de Jimmy : un téléphone relié le reste. Chaque NOUVEL appareil doit être "
+                              "autorisé ici, sur le PC. Pour l'installer comme une appli : ouvre le lien sur le téléphone, ajoute-le à "
+                              "l'écran d'accueil, puis relie-le depuis l'appli.")
         else:
             self.hint.setText("Avec ton propre domaine ou Tailscale, l'adresse reste la même : un seul jumelage suffit. "
                               "Utilise une adresse https pour pouvoir parler (micro).")

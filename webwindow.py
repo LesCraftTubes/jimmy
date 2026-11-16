@@ -887,10 +887,7 @@ class WebJimmyWindow(W.JimmyWindow):
 
     def refresh_sessions(self) -> None:
         wd = self.bridge.workdir()
-        pn = self._pending_name
-        if pn and self.bridge.session_id and self.bridge.session_id != pn[2]:
-            sessions.set_name(self.bridge.session_id, pn[0], manual=pn[1])
-            self._pending_name = None
+        self._finalize_handoff()
         full = sessions.full_ids()
         listed = sessions.list_sessions(wd)
         sessions.ensure_names(listed)

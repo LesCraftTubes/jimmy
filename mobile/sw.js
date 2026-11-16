@@ -1,5 +1,5 @@
 /* Service worker : l'appli s'ouvre instantanément (même sans réseau), la connexion au PC reste en direct. */
-const CACHE = 'jimmy-mobile-v1';
+const CACHE = 'jimmy-mobile-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
