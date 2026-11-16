@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from . import live, vision
+from . import live, vision, web
 
 _ORDER_UI = r"(?i)\b(clique[rz]?|clic|appuie|appuyer|remplis|remplir|saisis|écris|ecris|tape[rz]?|teste[rz]?|essaie|navigue[rz]?|parcours|connecte)"
 _ORDER_SCREEN = r"(?i)(écran|ecran|screenshot|capture d)"
@@ -45,7 +45,7 @@ def _fmt_report(rep: dict) -> str:
 
 
 def _t_open(a, ctx):
-    res = _lb().open(str(a.get("adresse", "")))
+    res = _lb().open(web.fix_alias(str(a.get("adresse", "")), ctx.cfg))
     if not res.get("ok"):
         return f"Impossible d'ouvrir la page : {res.get('error') or 'échec du chargement'}."
     txt = _lb().text(500).get("text", "")
@@ -67,7 +67,7 @@ def _t_report(a, ctx):
 
 def _t_capture(a, ctx):
     lb = _lb()
-    url = str(a.get("adresse", "")).strip()
+    url = web.fix_alias(str(a.get("adresse", "")).strip(), ctx.cfg)
     if url:
         res = lb.open(url)
         if not res.get("ok"):
@@ -118,7 +118,7 @@ def _t_screen(a, ctx):
 def _t_judge(a, ctx):
     """Ouvre la page (si une adresse est donnée), la capture, la mesure (couleurs, contrastes, polices...) et la regarde avec le modèle de vision."""
     lb = _lb()
-    url = str(a.get("adresse", "")).strip()
+    url = web.fix_alias(str(a.get("adresse", "")).strip(), ctx.cfg)
     if url:
         res = lb.open(url)
         if not res.get("ok"):

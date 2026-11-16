@@ -1,5 +1,8 @@
 ﻿# Historique des versions
 
+## 2.5.4
+- **Le navigateur d'Aurélie ne se trompe plus de site.** Quand tu parles de ton site avec une faute dans le nom, elle ouvrait l'adresse mal écrite, qui existe vraiment et appartient à quelqu'un d'autre. Ouvrir une page, la capturer et juger un rendu corrigent maintenant le nom (d'après les réglages `site_url` et `site_alias`). Les autres adresses, fichiers locaux et `localhost` restent intacts.
+
 ## 2.5.3
 - **Aurélie cherche vraiment, toute seule, sur un site.** Elle suit en priorité les liens qui parlent du sujet de ta demande (par exemple la page « reliques » quand tu parles de reliques) et lit jusqu'à 20 pages au lieu de s'arrêter à la première. Si l'adresse du site lui manque, elle la cherche (mémoire, recherche) au lieu de te la demander ou d'abandonner.
 - **Plus de faux « j'ai transmis à Claude ».** Quand Aurélie annonçait passer la main sans appeler l'outil, rien n'arrivait chez Claude. Maintenant, si elle le promet, le relais est fait pour de vrai avec ta demande d'origine. Elle a aussi pour consigne de persévérer elle-même (explorer le site, chercher sur Internet, lire les pages) avant de passer la main.

@@ -24,6 +24,8 @@ check("demande de modification : pas d'exploration", not any(c[0] == "explorer_s
 check("promesse de relais sans outil = relais réel", agent.is_failure("Je vais demander à Claude de reprendre la demande.") and agent.is_failure("Oui, j'ai bien transmis la demande à Claude."))
 check("vraie réponse : pas de relais", not agent.is_failure("Voici les 20 reliques les plus puissantes : Sceau du Tyran, Croc du Vampire."))
 check("mots du sujet extraits (sans mots courants)", web.keywords_of("il y a moyen taille sur mon site, sur les reliques, 20 les meilleurs") == ["taille", "reliques"])
+web.configure(Cfg(site_url="https://exemple.org", site_doc="/doc/", site_alias=r"exempl?e?\.org"))
+check("navigateur : faute corrigée, autres adresses intactes", web.fix_alias("exempl.org/x") == "https://exemple.org/x" and web.fix_alias("C:/a/page.html") == "C:/a/page.html" and web.fix_alias("localhost:8000") == "localhost:8000")
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

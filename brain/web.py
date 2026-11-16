@@ -146,6 +146,14 @@ def resolve(url: str) -> str:
     return u
 
 
+def fix_alias(url: str, cfg=None) -> str:
+    """Corrige seulement la faute de frappe du site de l'utilisateur (pour le navigateur d'Aurélie) ; toute autre adresse reste telle quelle."""
+    if cfg is not None:
+        configure(cfg)
+    u = (url or "").strip()
+    return resolve(u) if _SITE_RE and _SITE_RE.match(u) else u
+
+
 def _links(raw: str, base: str) -> list:
     host = urllib.parse.urlparse(base).netloc
     out = []
