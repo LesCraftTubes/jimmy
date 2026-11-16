@@ -27,6 +27,8 @@ BASE_PROMPT = (
     "qu'il pourrait contenir. Tu ne prétends jamais avoir fait ce que tu n'as pas fait. "
     "Si la tâche dépasse tes capacités (gros changement de code, serveur, base de données, plusieurs échecs), utilise "
     "IMMÉDIATEMENT l'outil passer_a_claude avec un résumé complet : Claude la fera. Mieux vaut passer la main que refuser ou bricoler. "
+    "Pour lire un site, sa documentation ou son wiki : explorer_site. Sans adresse, il ouvre le site de l'utilisateur (« mon site »). "
+    "Pour lire, parcourir ou comparer le contenu d'un site, utilise explorer_site : tu le fais TOI-MÊME, sans rien demander à l'utilisateur ni à Jimmy, puis tu classes et tu réponds. "
     "Tu as UN NAVIGATEUR à toi : tu PEUX ouvrir un site ou une page locale (ouvrir_page), la lire (lire_page_ouverte), la contrôler (rapport_page), "
     "défiler (defiler), cliquer et écrire dans un champ quand l'utilisateur le demande (cliquer, ecrire_dans), prendre des captures (capturer_page) et "
     "regarder une image (analyser_image), et JUGER un rendu avec ton modèle de vision et des mesures exactes (juger_rendu : couleurs, contrastes, polices, "
@@ -77,6 +79,8 @@ def _args(call: dict) -> dict:
 
 # Recherche web lancée d'avance SEULEMENT quand la demande parle clairement d'Internet (« recherche dans une discussion » n'en est pas une).
 _WEB = re.compile(r"(sur (internet|le web|google)|en ligne|actualit|dernière version|prix de )", re.I)
+_DOMAIN = re.compile(r"(?<![\w@/.])((?:[a-z0-9-]+\.)+(?:fr|com|net|org|io|dev|eu|gg|app|info|me|co|tv|xyz)(?:/[^\s)>\]\"']*)?)", re.I)
+_SITE_ASK = re.compile(r"(documentation|\bwiki\b|mon site|sur le site|le site|la page web|parcour|explor|navigue|consulte|va (voir|regarder|chercher|lire)|aller (voir|regarder|chercher|lire))", re.I)
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _MEM = re.compile(r"(souviens|mémoire|memoire|on avait (décidé|dit)|rappelle[- ]?moi|retiens|déjà fait)", re.I)
 
@@ -149,6 +153,10 @@ def prefetch(user_text: str) -> list:
         return calls
     if targets and _CHECK.search(user_text) and not _BAD_SHOT.search(user_text):
         return [("ouvrir_page", {"adresse": targets[0]}), ("rapport_page", {})]
+    dom = _DOMAIN.search(user_text)
+    if (_SITE_ASK.search(user_text) or (dom and not targets)) and not _BAD_SHOT.search(user_text) and not _OPEN.search(user_text):
+        # n'importe quel site : adresse donnée (avec ou sans https), sinon le site de l'utilisateur
+        return [("explorer_site", {"adresse": (targets[0] if targets else dom.group(1) if dom else ""), "mots": re.sub(r"\s+", " ", user_text)[:200]})]
     for u in _URL.findall(user_text)[:2]:
         calls.append(("lire_page", {"adresse": u}))
     if not calls and _WEB.search(user_text):
@@ -385,7 +393,7 @@ class LocalAgent:
                 if key in seen:
                     result = ("Tu as déjà fait exactement cette recherche : utilise son résultat, ne la répète pas. "
                               "Réponds maintenant, ou utilise passer_a_claude.")
-                elif name in ("chercher_web", "lire_page") and counts[name] > 3:
+                elif name in ("chercher_web", "lire_page", "explorer_site") and counts[name] > 3:
                     result = "Assez cherché sur Internet pour cette demande : réponds avec ce que tu as, ou utilise passer_a_claude."
                 else:
                     seen.add(key)

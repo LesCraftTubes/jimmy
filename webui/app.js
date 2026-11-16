@@ -428,9 +428,24 @@ function refreshLive() {
 setInterval(refreshLive, 900);
 function feedTime(ts) { return (ts ? new Date(ts * 1000) : new Date()).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
 function feedBox() { const box = $("#feed"), empty = $(".feed-empty", box); if (empty) empty.remove(); return box; }
+/* Défilement du fil : on suit le bas SEULEMENT si on y est (à 40 px près). Si l'utilisateur est remonté, on ne le force plus à redescendre.
+   Un observateur recolle au bas quand une ligne grandit après coup (résultat, détails), pour que le message entier reste visible. */
+L.stick = true;
+(() => {
+  const box = $("#feed"); if (!box) return;
+  const atBottom = () => box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.addEventListener("scroll", () => { if (!L.autoScrolling) L.stick = atBottom(); }, { passive: true });
+  new MutationObserver(() => feedStick()).observe(box, { childList: true, subtree: true, characterData: true, attributes: true });
+  new ResizeObserver(() => feedStick()).observe(box);
+})();
+function feedStick() {
+  if (!L.stick) return;
+  const box = $("#feed"), go = () => { L.autoScrolling = true; box.scrollTop = box.scrollHeight; requestAnimationFrame(() => { L.autoScrolling = false; }); };
+  go(); requestAnimationFrame(go); setTimeout(go, 400);       /* 400 ms : la fin de l'animation d'apparition d'une ligne */
+}
 function feedTrim(box) {
   while (box.children.length > 240) { const f = box.firstChild; if (f.dataset && f.dataset.wid) delete L.workRows[f.dataset.wid]; f.remove(); }
-  box.scrollTop = box.scrollHeight; L.feedN = box.children.length; $("#feedCount").textContent = L.feedN || "";
+  feedStick(); L.feedN = box.children.length; $("#feedCount").textContent = L.feedN || "";
 }
 function feedAdd(text, who, ts, replay) {
   if (!text) return;

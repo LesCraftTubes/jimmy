@@ -116,3 +116,90 @@ def search_full(query: str, n: int = 5) -> list:
 def search(query: str, n: int = 5) -> list:
     """Compatibilité : -> [(titre, adresse)]."""
     return [(t, u) for t, u, _s in search_full(query, n)]
+
+
+# ------------------------------------------------------------------ sites connus + exploration
+SITE = ""                 # site de l'utilisateur : réglage « site_url » de la configuration (vide = aucun)
+SITE_DOC = ""             # page de départ de sa documentation : réglage « site_doc » (ex. /wiki/)
+_SITE_RE = None           # fautes de frappe courantes du nom du site : réglage « site_alias » (expression régulière sur le nom de domaine)
+
+
+def configure(cfg) -> None:
+    """Lit le site de l'utilisateur dans la configuration (appelé par les outils avant de lire ou d'explorer)."""
+    global SITE, SITE_DOC, _SITE_RE
+    try:
+        SITE = str(cfg.get("site_url") or "").rstrip("/")
+        SITE_DOC = str(cfg.get("site_doc") or "")
+        alias = str(cfg.get("site_alias") or "")
+        _SITE_RE = re.compile(r"^(?:https?://)?(?:www\.)?(?:" + alias + r")(?=[/?#]|$)", re.I) if alias and SITE else None
+    except Exception:  # noqa: BLE001
+        SITE, SITE_DOC, _SITE_RE = "", "", None
+
+
+def resolve(url: str) -> str:
+    """Complète et corrige une adresse : ajoute https://, et remplace les fautes courantes du nom du site de l'utilisateur."""
+    u = (url or "").strip().strip("«»\"' ")
+    if _SITE_RE and _SITE_RE.match(u):
+        return SITE + _SITE_RE.sub("", u)
+    if u and not re.match(r"^https?://", u, re.I) and re.match(r"^[\w.-]+\.[a-z]{2,}(/|$)", u, re.I):
+        u = "https://" + u
+    return u
+
+
+def _links(raw: str, base: str) -> list:
+    host = urllib.parse.urlparse(base).netloc
+    out = []
+    for m in re.finditer(r"""<a\s[^>]*href=["']([^"'#]+)["']""", raw, re.I):
+        href = urllib.parse.urljoin(base, html.unescape(m.group(1))).split("#")[0]
+        p = urllib.parse.urlparse(href)
+        if p.scheme in ("http", "https") and p.netloc == host and not re.search(
+                r"\.(css|js|png|jpe?g|gif|webp|svg|ico|pdf|zip|woff2?)$|/(auth|staff|logout|mot-de-passe)\b", p.path, re.I):
+            if href not in out:
+                out.append(href)
+    return out
+
+
+def _text(raw: str) -> str:
+    raw = re.sub(r"(?is)<(script|style|nav|footer|header|svg|noscript)[^>]*>.*?</\1>", " ", raw)
+    txt = html.unescape(re.sub(r"(?s)<[^>]+>", " ", raw))
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1500, on_page=None) -> str:
+    """Parcourt un site à partir d'une page (liens du même site) et renvoie le texte des pages lues.
+    Avec des mots-clés, les pages qui les contiennent passent en premier et on n'en garde que les passages utiles."""
+    start = resolve(start) or (SITE + SITE_DOC)
+    if not start:
+        raise ValueError("aucune adresse donnée et aucun site configuré : demande l'adresse à l'utilisateur")
+    if not re.match(r"^https?://", start, re.I):
+        raise ValueError("adresse refusée : seules les adresses http(s) sont lues")
+    words = [w.lower() for w in re.findall(r"\w{3,}", keywords or "")]
+    queue, seen, pages = [start], {start}, []
+    while queue and len(pages) < max_pages:
+        url = queue.pop(0)
+        try:
+            raw = _get(url, timeout=15)
+        except Exception as e:  # noqa: BLE001
+            pages.append((0, url, f"(illisible : {e})"))
+            continue
+        txt = _text(raw)
+        title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", raw) or [None, url])[1]
+        score = sum(txt.lower().count(w) for w in words)
+        if words and score:
+            hits = [m.start() for w in words[:4] for m in re.finditer(re.escape(w), txt, re.I)][:3]
+            snip = " … ".join(txt[max(0, h - 250):h + 450] for h in sorted(set(hits))[:2])
+        else:
+            snip = txt[:per_page]
+        pages.append((score, url, f"{_clean(title)[:80]}\n{snip[:per_page]}"))
+        if on_page:
+            try:
+                on_page(url, _clean(title)[:70], len(pages), max_pages)
+            except Exception:  # noqa: BLE001
+                pass
+        base = start.rsplit("/", 1)[0] + "/"
+        for l in sorted(_links(raw, url), key=lambda x: not x.startswith(base)):    # les pages voisines de la page de départ d'abord
+            if l not in seen:
+                seen.add(l)
+                queue.append(l)
+    pages.sort(key=lambda p: -p[0])
+    return "\n\n".join(f"[Page {u}]\n{t}" for _s, u, t in pages) + f"\n\n({len(pages)} pages lues, {len(seen)} adresses repérées sur le site)"

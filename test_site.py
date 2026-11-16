@@ -1,0 +1,26 @@
+"""Exploration de site par l'IA locale : alias du domaine, routage, pages annoncées, défilement du fil (sans réseau)."""
+import re
+from pathlib import Path
+from brain import agent, web
+
+class Cfg(dict):
+    pass
+web.configure(Cfg(site_url="https://exemple.org", site_doc="/doc/", site_alias=r"exempl?e?\.org"))
+
+ok = True
+def check(name, cond):
+    global ok
+    print(("OK   " if cond else "ECHEC"), name); ok = ok and bool(cond)
+
+check("faute de frappe sur le site configuré corrigée", web.resolve("exempl.org/a") == "https://exemple.org/a")
+check("sans site configuré : adresse inchangée", (web.configure({}), web.resolve("exempl.org/a"))[1] == "https://exempl.org/a")
+check("domaine sans https complété", web.resolve("example.com/a") == "https://example.com/a")
+check("adresse déjà complète inchangée", web.resolve("https://docs.python.org/3/") == "https://docs.python.org/3/")
+p = agent.prefetch("va voir la documentation sur example.com")
+check("n'importe quel site -> explorer_site", p and p[0][0] == "explorer_site" and p[0][1]["adresse"] == "example.com")
+p = agent.prefetch("parcours https://docs.python.org/3/ pour asyncio")
+check("adresse https -> explorer_site", p and p[0][0] == "explorer_site")
+check("demande de modification : pas d'exploration", not any(c[0] == "explorer_site" for c in agent.prefetch("modifie le site exemple.org")))
+js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
+check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
+print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

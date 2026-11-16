@@ -1,5 +1,11 @@
 ﻿# Historique des versions
 
+## 2.5.2
+- **L'IA locale peut parcourir n'importe quel site toute seule.** Nouvel outil « explorer_site » : Aurélie ouvre une page, suit les liens du même site (jusqu'à 12 pages), lit leur texte et cherche les mots utiles, sans rien demander à Jimmy ni à toi. Elle connaît ton site (adresse réglée dans la configuration, fautes de frappe du nom corrigées) et marche aussi pour une documentation, un wiki ou n'importe quelle adresse, avec ou sans « https:// ». Chaque page visitée s'affiche dans l'activité en direct (« Page lue 3/12 »).
+- **Le panneau d'activité défile comme il faut.** Si tu es en bas, il suit : chaque nouveau message apparaît en entier, même quand une ligne grandit après coup. Si tu as remonté pour relire, il ne te force plus à redescendre.
+- **Publication plus simple.** `release.ps1 -Version X -Notes notes.md` fait tout : version, commit, tag, envoi, attente de la construction, notes et suppression des anciennes versions.
+- Nouveau test : `test_site.py`.
+
 ## 2.5.1
 - **Le passage de relais marche pour de vrai.** Quand tu écris « d'abord Aurélie se présente, puis passe le relais à Jimmy pour qu'il se présente lui-même », Aurélie fait **seulement sa part**, puis Jimmy est lancé et fait la sienne : avant, Aurélie répondait pour les deux. Ça marche aussi avec « dis à Jimmy de modifier le bouton » (Aurélie passe tout à Jimmy tout de suite), « présentez-vous tous les deux, chacun son tour », ou « fais ça, ensuite tu passes la main à Jimmy pour qu'il fasse ça ». Le relais a lieu quel que soit le sélecteur (Claude / IA locale / Auto) et les deux réponses viennent de deux auteurs différents dans la discussion.
 - **Une demande de modification adressée à Aurélie passe automatiquement à Jimmy** (« Hey Aurélie, modifie le bouton », « corrige l'interface », « déploie le site »...) : même si tu lui parles directement ou avec « @local », elle ne tente pas de le faire elle-même, elle prévient Jimmy en une phrase et il s'en occupe. Les questions qui lui reviennent restent chez elle (« que fait Jimmy ? », « qu'est-ce qu'il vient de modifier ? », captures, jugement d'un rendu).
