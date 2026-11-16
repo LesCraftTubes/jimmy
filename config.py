@@ -155,6 +155,16 @@ DEFAULTS = {
     "local_url": "",               # adresse du moteur (vide = détection automatique sur ce PC)
     "vision_model": "",            # modèle de vision de LM Studio (facultatif) : Aurélie décrit l'aspect des captures avec
     "captures_days": 14,           # durée de conservation des captures d'Aurélie (jours)
+    "ui_look": "cyber",            # style : cyber / sobre
+    "ui_mode": "dark",             # mode : dark / light
+    "ui_tint": 40,                 # intensité de la teinte de l'interface (0 à 100)
+    "ui_amb": "none",              # ambiance de fond : none / halo / grid / aurora
+    "ui_round": "soft",            # arrondis : sharp / soft / pill
+    "ui_live_w": 440,              # largeur du panneau d'activité (pixels), réglée à la souris
+    "ui_saved": False,             # les réglages d'apparence sont déjà dans cette configuration (sinon repris une fois de la page)
+    "follow_live": True,           # le panneau de droite recharge la page affichée quand Jimmy modifie un fichier de site
+    "follow_snap": True,           # pendant le travail de Jimmy, Aurélie envoie un rendu dans la conversation (au plus un toutes les 75 s)
+    "follow_check": True,          # à la fin d'une tâche, Aurélie contrôle le rendu des pages modifiées (rapport + capture, sans token)
     "local_model": "",             # modèle de discussion (vide = celui qui est chargé)
     "packs_disabled": [],          # packs de connaissances désactivés
 }

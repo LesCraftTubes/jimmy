@@ -69,11 +69,20 @@ class LocalTab(QWidget):
         form.addRow("Adresse (avancé)", self.url)
 
         self.vision = QLineEdit(str(cfg.get("vision_model") or ""))
-        self.vision.setPlaceholderText("aucun : Aurélie lit le texte et les couleurs d'une image")
+        self.vision.setPlaceholderText("vide = automatique (un modèle de vision installé dans LM Studio) ; « off » = jamais")
         form.addRow("Modèle de vision", self.vision)
-        form.addRow("", _hint("Facultatif. Pour qu'Aurélie DÉCRIVE aussi l'aspect d'une capture (mise en page, éléments qui se chevauchent), "
-                              "télécharge dans LM Studio un petit modèle qui sait voir (« vision » ou « VL ») et écris ici son nom exact. "
-                              "Sans lui, elle ne devine rien : elle te dit ce qu'elle a lu et ce qu'elle ne peut pas juger."))
+        form.addRow("", _hint("Pour qu'Aurélie REGARDE un rendu (couleurs, mise en page), elle utilise un modèle de vision installé dans LM Studio : "
+                              "Qwen3-VL 4B (3,3 Go) est choisi automatiquement s'il est installé. Comme la carte graphique est souvent presque pleine, elle décharge "
+                              "un moment le modèle de discussion (environ 20 s), regarde, puis le remet. Écris ici un autre nom pour en choisir un, ou « off » pour ne "
+                              "jamais s'en servir. Sans modèle de vision, elle s'appuie sur les mesures exactes de la page et le dit."))
+        vrow = QHBoxLayout()
+        self.vision_btn = QPushButton("Installer le modèle de vision (3,3 Go)")
+        self.vision_btn.clicked.connect(self._install_vision)
+        self.vision_lbl = QLabel("")
+        self.vision_lbl.setWordWrap(True)
+        vrow.addWidget(self.vision_btn)
+        vrow.addWidget(self.vision_lbl, 1)
+        form.addRow("", vrow)
         self.captures_days = QLineEdit(str(cfg.get("captures_days", 14)))
         form.addRow("Garder les captures (jours)", self.captures_days)
 
@@ -103,8 +112,30 @@ class LocalTab(QWidget):
                                    else " Installe LM Studio (lmstudio.ai), Bionic ou Ollama, puis télécharge un modèle."))
         threading.Thread(target=work, daemon=True).start()
 
+    def _install_vision(self) -> None:
+        """Télécharge Qwen3-VL 4B depuis le catalogue officiel de LM Studio (seulement quand on clique)."""
+        lms = engine.lms_cli()
+        if not lms:
+            self.vision_lbl.setText("LM Studio (commande « lms ») introuvable : installe LM Studio d'abord (lmstudio.ai).")
+            return
+        self.vision_btn.setEnabled(False)
+        self.vision_lbl.setText("Téléchargement en cours (3,3 Go)… tu peux continuer à utiliser Jimmy.")
+
+        def work() -> None:
+            try:
+                out = engine._run([lms, "get", "qwen/qwen3-vl-4b", "-y"], 3600)
+                ok = "completed" in (out or "").lower() or "already" in (out or "").lower()
+                self.sig.done.emit("VIS|" + ("Modèle de vision installé : Aurélie l'utilisera toute seule." if ok else "Téléchargement non confirmé : " + (out or "")[-160:]))
+            except Exception as e:  # noqa: BLE001
+                self.sig.done.emit("VIS|Échec du téléchargement : " + str(e)[:160])
+        threading.Thread(target=work, daemon=True).start()
+
     def _show(self, text: str) -> None:
         kind, _, body = text.partition("|")
+        if kind == "VIS":
+            self.vision_lbl.setText(body)
+            self.vision_btn.setEnabled(True)
+            return
         (self.pc if kind == "PC" else self.engine_lbl).setText(body)
         if kind == "ENG" and "Modèles : " in body:
             for m in body.split("Modèles : ")[1].rstrip(".").split(", "):

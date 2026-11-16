@@ -23,6 +23,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
+import extras
 import sessions
 import theme
 import window as W
@@ -107,35 +108,7 @@ class Bridge(QObject):
             self.win.cfg.set("accent", name)
             self._later(lambda: (self.win._apply_look(), self.win._apply_psychosis()))
 
-    # ---- panneau « Écran en direct » : le PC d'Aurélie
-    def _live_thread(self, fn) -> None:
-        threading.Thread(target=fn, daemon=True).start()
-
-    @Slot(str)
-    def liveOpen(self, url: str) -> None:
-        lb = self.win._live
-        self.win._actor = "user"
-
-        def work() -> None:
-            res = lb.open(url)
-            if not res.get("ok"):
-                self.win.jsb.emit({"t": "toast", "text": "Page non ouverte : " + str(res.get("error") or "échec du chargement"), "err": True})
-        self._live_thread(work)
-
-    @Slot()
-    def liveCapture(self) -> None:
-        lb = self.win._live
-
-        def work() -> None:
-            res = lb.capture(caption="Capture faite par toi", who="user")
-            if not res.get("ok"):
-                self.win.jsb.emit({"t": "toast", "text": "Capture impossible : " + str(res.get("error")), "err": True})
-        self._live_thread(work)
-
-    @Slot()
-    def liveGallery(self) -> None:
-        self.win._push_gallery()
-
+    # ---- panneau d'activité : joindre un rendu de la conversation à ton prochain message
     @Slot(str)
     def liveAttach(self, file: str) -> None:
         """Joint une capture au prochain message : Jimmy pourra la regarder si tu le lui demandes."""
@@ -143,17 +116,19 @@ class Bridge(QObject):
         if any(r.get("file") == file for r in live.list_captures(300)):
             self._later(lambda: self.win.attach_paths([file]))
 
-    @Slot(str)
-    def liveShow(self, file: str) -> None:
-        from brain import live
-        for r in live.list_captures(300):
-            if r.get("file") == file:
-                self.win._on_live_image(file, r.get("caption", ""), r.get("who", "local"))
-                return
-
-    @Slot()
-    def liveClose(self) -> None:
-        self._live_thread(self.win._live.close_page)
+    @Slot(str, str)
+    def setUi(self, key: str, value: str) -> None:
+        """Enregistre un réglage d'apparence dans la configuration de Jimmy (et non dans le stockage de la page, peu fiable d'une session à l'autre)."""
+        ok = {"look": ("cyber", "sobre"), "mode": ("dark", "light"), "amb": ("none", "halo", "grid", "aurora"), "round": ("sharp", "soft", "pill")}
+        if key in ok and value in ok[key]:
+            self.win.cfg.set("ui_" + key, value)
+        elif key == "tint" and str(value).lstrip("-").isdigit():
+            self.win.cfg.set("ui_tint", max(0, min(100, int(value))))
+        elif key == "live_w" and str(value).isdigit():
+            self.win.cfg.set("ui_live_w", max(320, min(900, int(value))))
+        else:
+            return
+        self.win.cfg.set("ui_saved", True)
 
     @Slot(str)
     def setLocalColor(self, color: str) -> None:
@@ -651,10 +626,13 @@ class WebJimmyWindow(W.JimmyWindow):
         from brain import live as _live
         self._live = _live.LiveBrowser(self)
         _live.instance = self._live
-        self._live.on_frame = lambda d: self.jsb.emit({"t": "live_frame", **d})
-        self._live.on_state = lambda d: self.jsb.emit({"t": "live_state", **d})
-        self._live.on_click = lambda d: self.jsb.emit({"t": "live_click", **d})
-        self._live.on_action = lambda text: self.jsb.emit({"t": "live_action", "text": text, "who": getattr(self, "_actor", "idle")})
+        self._live.on_action = self._on_live_action
+        self._work_open = {}                 # outils de Jimmy en cours : id -> (outil, fichier)
+        self._follow_timer = QTimer(self)
+        self._follow_timer.setSingleShot(True)
+        self._follow_timer.timeout.connect(self._follow_refresh)
+        self._follow_target = ""
+        self._last_snap = 0.0
         self._live.on_image = self._on_live_image
         try:
             _live.purge_captures(int(self.cfg.get("captures_days", 14)))
@@ -711,21 +689,154 @@ class WebJimmyWindow(W.JimmyWindow):
             "wake_label": self._wake_label(), "psy": self._psy_level() > 0, "psy_level": float(self._psy_level()),
             "accents": [[n, a, b] for n, (a, b) in ACCENTS.items()], "accent_name": cfg.get("accent"),
             "local_color": self._local_color(), "local_name": self._local_name(),
+            "ui": {"look": cfg.get("ui_look", "cyber"), "mode": cfg.get("ui_mode", "dark"), "tint": int(cfg.get("ui_tint", 40)), "amb": cfg.get("ui_amb", "none"),
+                   "round": cfg.get("ui_round", "soft"), "live_w": int(cfg.get("ui_live_w", 440)), "saved": bool(cfg.get("ui_saved", False))},
         }})
 
+    def _leaving_session(self) -> None:
+        pass
+
+    def _on_live_action(self, text: str) -> None:
+        who = getattr(self, "_actor", "idle")
+        self.jsb.emit({"t": "live_action", "text": text, "who": who})
+        self._keep("feed", text=text, who=who)
+
+    # ---- le travail de Jimmy en direct : fichiers lus et modifiés, commandes, commentaires, TOUJOURS dans le panneau de droite
+    _FOLLOW_EXT = (".html", ".htm", ".css", ".scss", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".vue", ".php", ".twig", ".svg")
+
+    def _work_event(self, item: dict) -> None:
+        self.jsb.emit({"t": "work", **item})
+        self._keep("work", **item)
+        ph, tool = item.get("phase"), item.get("tool")
+        if ph == "start" and tool in ("Edit", "MultiEdit", "Write") and item.get("target"):
+            self._work_open[item.get("id", "")] = item["target"]
+        elif ph == "end" and item.get("ok") and item.get("id") in self._work_open:
+            target = self._work_open.pop(item["id"])
+            self._edited_files.add(target)                              # relu à la fin de la tâche (syntaxe, secrets)
+            if not target.lower().endswith(self._FOLLOW_EXT):
+                return
+            self._dirty_pages.add(target)
+            if self.cfg.get("follow_live", True):
+                self._follow_target = target
+                self._follow_timer.start(1800)          # un seul rafraîchissement après une série de modifications
+
+    def _follow_refresh(self) -> None:
+        target = self._follow_target
+        if not target:
+            return
+
+        def work() -> None:
+            from PySide6.QtCore import QUrl as _QUrl
+            lb = self._live
+            cur = lb.current().get("url", "") or ""
+            name = Path(target).name
+            res = None
+            if target.lower().endswith((".html", ".htm")) and Path(target).is_file():
+                res = lb.open(_QUrl.fromLocalFile(target).toString(), say=f"{name} modifié : je recharge le rendu")
+            elif cur and cur != "about:blank":
+                res = lb.open(cur, say=f"{name} modifié : je recharge la page")
+            else:
+                self._on_live_action(f"{name} modifié (aucune page ouverte à rafraîchir)")
+            # un rendu envoyé dans la conversation PENDANT le travail (au plus un toutes les 75 s, pour ne pas la noyer)
+            if res and res.get("ok") and self.cfg.get("local_enabled", False) and self.cfg.get("follow_snap", True) and time.time() - self._last_snap > 75:
+                self._last_snap = time.time()
+                lb.capture(caption=f"Rendu en cours de travail : {name}", who="local")
+        threading.Thread(target=work, daemon=True).start()
+
+    # ---- le rôle d'Aurélie après chaque tâche de Jimmy : contrôler le rendu (sans un seul token)
+    def _after_task(self) -> None:
+        pages, files = sorted(self._dirty_pages), sorted(self._edited_files)
+        self._dirty_pages.clear()
+        self._edited_files.clear()
+        if not (pages or files) or not self.cfg.get("local_enabled", False) or not self.cfg.get("follow_check", True):
+            return
+        threading.Thread(target=self._aurelie_check, args=(pages, files), daemon=True).start()
+
+    def _aurelie_check(self, pages: list, files: list = ()) -> None:
+        """Après une tâche de Jimmy, Aurélie travaille pour de bon (sans un token) : elle RELIT les fichiers modifiés (syntaxe, secrets écrits en clair),
+        puis, si une page était concernée, recharge le rendu, le mesure et l'envoie dans la conversation."""
+        from PySide6.QtCore import QUrl as _QUrl
+        from brain import checks, live_tools
+        lb = self._live
+        allf = list(dict.fromkeys(list(files) + list(pages)))
+        names = ", ".join(dict.fromkeys(Path(p).name for p in allf))[:90]
+        try:
+            self._announce_handoff("jimmy", "local", f"il a modifié {len(allf)} fichier(s)")
+            self._on_live_action(f"Je relis les {len(allf)} fichier(s) modifiés ({names})")
+            res = checks.check_files(allf)
+            bad = [r for r in res if not r["ok"]]
+            report = checks.summary(res)
+            if bad:
+                self.sig.dialog.emit("local", "jimmy", "Jimmy, j'ai relu tes modifications et il y a des problèmes : " + report)
+                self._local_ctx = (self._local_ctx + ["elle a relu les fichiers modifiés par Jimmy et a trouvé : " + report[:300]])[-3:]
+                self._on_live_action("Relecture : problème(s) trouvé(s) → " + report[:160])
+            else:
+                self._on_live_action("Relecture : " + report)
+            self._bump_local("checks")
+            cur = lb.current().get("url", "") or ""
+            htmls = [p for p in pages if p.lower().endswith((".html", ".htm")) and Path(p).is_file()]
+            url = _QUrl.fromLocalFile(htmls[-1]).toString() if htmls else cur
+            if not pages or not url or url == "about:blank":
+                if not bad:
+                    self.sig.dialog.emit("local", "jimmy", f"Jimmy, j'ai relu tes modifications ({names}) : {report}.")
+                return                                      # pas de page à afficher : la relecture suffit
+            res = lb.open(url, say=f"Je contrôle le rendu après les modifications ({names})")
+            if not res.get("ok"):
+                self.sig.dialog.emit("local", "jimmy", f"Jimmy, je n'ai pas pu ouvrir la page pour contrôler le rendu ({res.get('error') or 'chargement échoué'}).")
+                return
+            rep = lb.report()
+            cap = lb.capture(caption=f"Rendu après modification : {names}", who="local")
+            text = live_tools._fmt_report(rep) if rep.get("ok") else "contrôle impossible"
+            from brain import design as _design
+            probs = _design.verdict((cap.get("audit") if cap.get("ok") else None) or {})
+            verdict = text.splitlines()[-1] if text else ""
+            if probs:
+                verdict = "problèmes mesurés : " + ", ".join(probs) + ". " + verdict
+            n_err = int(res.get("errors", 0))
+            summary = (f"Jimmy, j'ai relu tes modifications ({names}) : {report}. Côté rendu : {verdict}"
+                       + (f" {n_err} erreur(s) JavaScript au chargement." if n_err else ""))
+            if cap.get("ok"):
+                summary += " La capture est dans la discussion."
+            self.sig.dialog.emit("local", "jimmy", summary)
+            self._local_ctx = (self._local_ctx + [f"après les modifications de {names}, elle a contrôlé le rendu : {verdict}"])[-3:]
+            self._bump_local("checks")
+        except Exception as e:  # noqa: BLE001
+            self._on_live_action(f"Contrôle du rendu interrompu : {e}")
+        finally:
+            self._announce_handoff("local", "jimmy", "contrôle terminé")
+            self._set_actor("idle")
+
+    # ---- à la réouverture d'une discussion : ce qui avait été affiché revient
+    def _replay_xfer(self, it: dict) -> None:
+        self.jsb.emit({"t": "xfer", "from": it.get("frm", "local"), "to": it.get("to", "jimmy"), "why": it.get("why", ""), "name": self._local_name()})
+
+    def _replay_image(self, it: dict) -> None:
+        from PySide6.QtCore import QUrl as _QUrl
+        f = str(it.get("file", ""))
+        ok = bool(f) and Path(f).is_file()
+        self.jsb.emit({"t": "image", "src": _QUrl.fromLocalFile(f).toString() if ok else "", "file": f, "caption": it.get("caption", ""),
+                       "who": it.get("who", "local"), "name": self._local_name(), "replay": True, "missing": not ok})
+
+    def _replay_feed(self, sid) -> None:
+        self.jsb.emit({"t": "feed_clear"})
+        if not sid:
+            return
+        nm = lambda w: "Jimmy" if w == "jimmy" else self._local_name()  # noqa: E731
+        for it in extras.load(sid, kinds=("feed", "work", "xfer"))[-170:]:
+            k = it.get("kind")
+            if k == "work":
+                self.jsb.emit({"t": "work", **{a: b for a, b in it.items() if a != "kind"}, "replay": True})
+            elif k == "xfer":
+                self.jsb.emit({"t": "feed_item", "who": it.get("frm", "local"), "ts": it.get("ts", 0),
+                               "text": f"{nm(it.get('frm'))} passe la main à {nm(it.get('to'))}" + (f" ({it['why']})" if it.get("why") else "")})
+            else:
+                self.jsb.emit({"t": "feed_item", "who": it.get("who", "local"), "text": it.get("text", ""), "ts": it.get("ts", 0)})
     def _on_live_image(self, path: str, caption: str, who: str = "local") -> None:
-        """Une capture est prête : elle s'affiche dans la discussion et rejoint la galerie du panneau (appelable depuis n'importe quel fil)."""
+        """Un rendu est prêt : il s'affiche dans la discussion (appelable depuis n'importe quel fil) et reste sauvegardé avec elle."""
         from PySide6.QtCore import QUrl as _QUrl
         self.jsb.emit({"t": "image", "src": _QUrl.fromLocalFile(path).toString(), "file": path, "caption": caption, "who": who,
                        "name": self._local_name()})
-        self._push_gallery()
-
-    def _push_gallery(self) -> None:
-        from PySide6.QtCore import QUrl as _QUrl
-        from brain import live
-        self.jsb.emit({"t": "gallery", "items": [{"file": r["file"], "src": _QUrl.fromLocalFile(r["file"]).toString(), "caption": r.get("caption", ""),
-                                                  "ts": r.get("ts", ""), "who": r.get("who", "local"), "url": r.get("url", "")}
-                                                 for r in live.list_captures(48)]})
+        self._keep("image", file=path, caption=caption, who=who)
 
     # ---- qui travaille : Jimmy ou l'IA locale (affiché en haut de la fenêtre, avec les passages de l'un à l'autre)
     def _set_actor(self, who: str, why: str = "") -> None:
@@ -734,6 +845,7 @@ class WebJimmyWindow(W.JimmyWindow):
 
     def _announce_handoff(self, frm: str, to: str, why: str = "") -> None:
         self.jsb.emit({"t": "handoff", "from": frm, "to": to, "why": why})
+        self._keep("xfer", frm=frm, to=to, why=why)
         self._set_actor(to)
 
     # ---- bouton « Vérifier les mises à jour » : cherche, et s'il y en a une, télécharge et lance l'installation tout de suite
@@ -798,7 +910,7 @@ class WebJimmyWindow(W.JimmyWindow):
             return
         st = self.cfg.get("local_stats") or {}
         self.jsb.emit({"t": "localstats", "local": int(st.get("local", 0)), "relay": int(st.get("relay", 0)),
-                       "direct": int(st.get("direct", 0)), "delegated": int(st.get("delegated", 0)),
+                       "direct": int(st.get("direct", 0)), "delegated": int(st.get("delegated", 0)), "checks": int(st.get("checks", 0)),
                        "name": self._local_name()})
 
     # ---- pièces jointes : copiées dans un dossier de Jimmy, jointes au message (le chemin reste dans la discussion)
@@ -988,7 +1100,7 @@ class WebJimmyWindow(W.JimmyWindow):
                   "tip": title if (names.get(sid) or {}).get("manual") else (sessions.first_request(wd, sid) or title)}
                  for sid, title, when in listed]
         self._sessions_cache = cache
-        self.jsb.emit({"t": "sessions", "items": cache, "current": self.bridge.session_id or ""})
+        self.jsb.emit({"t": "sessions", "items": cache, "current": self._current_sid() or ""})
         self._remote_emit(self._sessions_event())
 
     def _on_usage(self, data) -> None:

@@ -39,7 +39,7 @@ hiddenimports += ["jimmy_mem", "sessions", "PySide6.QtNetwork", "pyttsx3.drivers
                   "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore", "PySide6.QtWebChannel", "webwindow",
                   "brain", "brain.agent", "brain.engine", "brain.tools", "brain.packs", "brain.hardware", "brain.web",
                   "brain.settings_tab", "brain.wizard_page", "brain.live", "brain.live_tools", "brain.vision", "brain.dialogue",
-                  "brain.browser_search", "local_server"]
+                  "brain.browser_search", "brain.checks", "brain.design", "extras", "local_server"]
 
 a = Analysis(
     ["main.py"],

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +18,45 @@ NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 # Ports habituels : LM Studio / Bionic (1234, parfois 1235), Ollama (11434), llama.cpp (8080).
 CANDIDATES = (1234, 1235, 11434, 8080, 1236)
 EMBED_HINTS = ("embed", "nomic", "bge", "e5", "gte")
+
+
+GPU_LOCK = threading.RLock()     # un seul usage de la carte graphique à la fois : réponse normale OU session de vision (qui change les modèles chargés)
+
+
+def loaded_models() -> list:
+    """Modèles de langage chargés en ce moment dans LM Studio : [{identifier, modelKey, contextLength, vision}] ([] si on ne sait pas)."""
+    lms = lms_cli()
+    if not lms:
+        return []
+    try:
+        data = json.loads(_run([lms, "ps", "--json"], 30) or "[]")
+    except ValueError:
+        return []
+    return [{"identifier": m.get("identifier") or m.get("modelKey"), "modelKey": m.get("modelKey"), "contextLength": m.get("contextLength") or 4096,
+             "vision": bool(m.get("vision"))} for m in data if m.get("type") == "llm"]
+
+
+def free_vram_mb():
+    """Mémoire libre de la carte graphique NVIDIA en Mo (None si on ne peut pas la lire)."""
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return int(r.stdout.strip().splitlines()[0])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def downloaded_vision_models() -> list:
+    """Modèles installés dans LM Studio qui savent regarder des images : [{modelKey, sizeMb}] (les plus petits d'abord)."""
+    lms = lms_cli()
+    if not lms:
+        return []
+    try:
+        data = json.loads(_run([lms, "ls", "--json"], 40) or "[]")
+    except ValueError:
+        return []
+    out = [{"modelKey": m.get("modelKey"), "sizeMb": int(m.get("sizeBytes", 0) / 1e6)} for m in data if m.get("type") == "llm" and m.get("vision")]
+    return sorted(out, key=lambda m: m["sizeMb"])
 
 
 class LocalError(Exception):
@@ -161,7 +201,8 @@ class Engine:
         body = {"model": self.chat_model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
         if tools:
             body["tools"] = tools
-        data = _post(self.base + "/chat/completions", body)
+        with GPU_LOCK:
+            data = _post(self.base + "/chat/completions", body)
         try:
             return data["choices"][0]["message"]
         except (KeyError, IndexError) as e:

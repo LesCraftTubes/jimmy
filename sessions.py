@@ -40,6 +40,10 @@ def _user_text(content, raw: bool = False) -> str:
     # Balises techniques collées dans le message (rappels système, notifications...) : jamais affichées.
     text = _TECH_TAGS.sub("", text.strip())
     text = re.sub(r"</?pasted_content[^>]*>", "", text).strip()
+    if not raw:
+        # ce que Jimmy ajoute devant ta demande pour Claude (ce qu'Aurélie a répondu entre-temps, mots de routage) n'est pas ta demande
+        text = re.sub(r"(?s)^\[Contexte : l'IA locale de Jimmy a déjà répondu entre-temps :.*?\]\s*", "", text)
+        text = re.sub(r"^@(?:claude|local|ia)\b[ :,-]*", "", text, flags=re.I).strip()
     if text.startswith(RESUME_MARK) and not raw:
         return "↺ Suite de la discussion."
     return "" if text.startswith(_SKIP_PREFIXES) else text
@@ -87,6 +91,36 @@ def load_messages(workdir: str, session_id: str) -> list:
                 out[-1][1] += "\n\n" + text
             else:
                 out.append(["assistant", text])
+    return [tuple(m) for m in out]
+
+
+def _epoch(ts) -> float:
+    """Horodatage ISO d'une ligne de discussion (« 2026-11-16T15:27:19.123Z ») -> secondes."""
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def load_timeline(workdir: str, session_id: str) -> list:
+    """Comme load_messages, mais avec l'heure : [(secondes, role, texte)] (réponses regroupées par tour)."""
+    out = []
+    for d in _entries(project_dir(workdir) / f"{session_id}.jsonl"):
+        content = (d.get("message") or {}).get("content")
+        ts = _epoch(d.get("timestamp"))
+        if d["type"] == "user":
+            text = _user_text(content)
+            if text:
+                out.append([ts, "user", text])
+        else:
+            text = _assistant_text(content)
+            if not text:
+                continue
+            if out and out[-1][1] == "assistant":
+                out[-1][2] += "\n\n" + text
+            else:
+                out.append([ts, "assistant", text])
     return [tuple(m) for m in out]
 
 
@@ -299,25 +333,34 @@ def delete_session(workdir: str, session_id: str, trash: bool = True, days: int 
         shutil.rmtree(side, ignore_errors=True)
     forget_name(session_id)
     unmark_full(session_id)
+    try:
+        import extras
+        extras.forget(session_id)
+    except Exception:  # noqa: BLE001
+        pass
     return True
 
 
 def list_sessions(workdir: str, limit: int = 60) -> list:
     """[(id, titre, date lisible)] des conversations Claude Code de ce dossier, plus récentes d'abord."""
     folder = project_dir(workdir)
-    if not folder.is_dir():
-        return []
-    files = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+    files = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit] if folder.is_dir() else []
     names = load_names()
-    out = []
+    rows = []
     for f in files:
         stored = (names.get(f.stem) or {}).get("name")
         title = stored or _title(f)
         if title == "(conversation vide)":
             continue
-        when = time.strftime("%d/%m %H:%M", time.localtime(f.stat().st_mtime))
-        out.append((f.stem, title, when))
-    return out
+        rows.append((f.stat().st_mtime, f.stem, title))
+    try:                              # + les discussions menées seulement avec Aurélie (elles n'ont pas de fichier côté Claude)
+        import extras
+        for sid, title, mtime in extras.local_sessions(limit):
+            rows.append((mtime, sid, (names.get(sid) or {}).get("name") or title))
+    except Exception:  # noqa: BLE001
+        pass
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [(sid, title, time.strftime("%d/%m %H:%M", time.localtime(m))) for m, sid, title in rows[:limit]]
 
 
 # ------------------------------------------------------------------ taille du contexte

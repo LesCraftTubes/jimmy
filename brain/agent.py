@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 
+from .tools import FINAL
 from . import packs as packs_mod
 from .engine import Engine, LocalError
 from .tools import Context, Registry, base_registry, journal_text
@@ -28,9 +29,10 @@ BASE_PROMPT = (
     "IMMÉDIATEMENT l'outil passer_a_claude avec un résumé complet : Claude la fera. Mieux vaut passer la main que refuser ou bricoler. "
     "Tu as UN NAVIGATEUR à toi : tu PEUX ouvrir un site ou une page locale (ouvrir_page), la lire (lire_page_ouverte), la contrôler (rapport_page), "
     "défiler (defiler), cliquer et écrire dans un champ quand l'utilisateur le demande (cliquer, ecrire_dans), prendre des captures (capturer_page) et "
-    "regarder une image (analyser_image). L'utilisateur voit ton écran en direct dans le panneau de droite. Ne dis JAMAIS que tu ne peux pas ouvrir "
+    "regarder une image (analyser_image), et JUGER un rendu avec ton modèle de vision et des mesures exactes (juger_rendu : couleurs, contrastes, polices, "
+    "textes coupés). Ne devine JAMAIS une couleur ou un défaut visuel : mesure ou regarde. L'utilisateur voit ton écran en direct dans le panneau de droite. Ne dis JAMAIS que tu ne peux pas ouvrir "
     "une page, un site ou un fichier .html : fais-le avec ton navigateur. "
-    "Quand un « FIL DE LA DISCUSSION » est donné, c'est ce qui s'est dit entre l'utilisateur et Jimmy : relis-le AVANT de répondre, "
+    "Quand un « FIL DE LA DISCUSSION » est donné, c'est ce qui s'est dit entre l'utilisateur, Jimmy et toi (« Toi (Aurélie) » = ce que tu as déjà répondu) : relis-le AVANT de répondre, "
     "car une demande courte comme « oui vas-y » ou « fais-le » s'y rapporte. Ne redemande jamais ce qu'il contient déjà. "
     "Tu ne signes JAMAIS « Jimmy » et tu n'écris jamais d'étiquette comme « [Jimmy a répondu] » : tu es Aurélie, l'IA locale. "
     "Fait à connaître : l'appli mobile de Jimmy n'est PAS sur le Google Play Store ni l'App Store. C'est une page web : "
@@ -90,15 +92,21 @@ _IMG_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'<>|*?]+\.(?:png|jpe?g|bmp|gif|web
 _HTML_PATH = re.compile(r"([A-Za-z]:[\\/][^\s\"'<>|*?]+\.html?)", re.I)
 _LOOK_IMG = re.compile(r"(analys|regarde|d[ée]cris|lis |que (dit|montre)|qu'est[- ]ce|c'est quoi|image|photo|capture|screen)", re.I)
 _LAST_SHOT = re.compile(r"(derni[èe]re|derniere) (capture|image|screen)", re.I)
+_JUDGE = re.compile(r"(juge|[ée]value|critique|donne[- ]moi ton avis|ton avis sur|qu'?est[- ]ce que tu penses|que penses[- ]tu|note[- ]moi|est[- ]ce (que )?(c'est|ça|ca) (beau|joli|lisible|r[ée]ussi)|"
+                    r"(beau|joli|moche|lisible|r[ée]ussi|harmonieu|coh[ée]rent).{0,30}(design|rendu|page|site|couleurs?)|(design|rendu|esth[ée]tique|couleurs?|palette|contraste|lisibilit[ée]|mise en page)"
+                    r".{0,30}(bien|correct|r[ée]ussi|lisible|ok|bon|bonne|harmonieu|probl[èe]me))", re.I)
+_JIMMY_WORK = re.compile(r"(que fait (jimmy|il)|qu'?est[- ]ce (que )?(jimmy|il) (fait|a fait|est en train)|o[uù] en est (jimmy|il)|ce que (jimmy|il) (fait|a fait|vient de faire)|"
+                         r"(le )?travail de jimmy|jimmy (travaille|bosse) sur quoi|qu'?a[- ]t[- ]il (fait|modifi)|qu'?est[- ]ce qu'?il (a modifi|vient de))", re.I)
+_CHECK_FILES = re.compile(r"(rel[iî]s|v[ée]rifie|contr[ôo]le|regarde).{0,40}(syntaxe|fichiers? (que )?jimmy|ses modifs|ses modifications|ce qu'?il a modifi)", re.I)
 _CLICK = re.compile(r"clique[rz]? (?:sur )?(?:le |la |les |l')?(?:bouton |lien |onglet |menu |champ )?[«\"']?(.+?)[»\"']?(?= (?:et |puis |,)|[.!?]|$)", re.I)
 _OPEN = re.compile(r"\b(ouvre|ouvrir|va sur|aller sur|visite|affiche|navigue)\b", re.I)
 _BAD_SHOT = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.[ée]cri|corrige (le|la|les|mon|ma)|modifie|ajoute|installe|publie|release)", re.I)
 
 
 def wants_shot(text: str) -> bool:
-    """Demande de capture / de rendu / d'analyse d'image que l'IA locale sait faire seule (sans toucher au code)."""
+    """Demande de capture / de rendu / de jugement / d'analyse d'image que l'IA locale sait faire seule (sans toucher au code)."""
     t = text or ""
-    return bool((_SHOT.search(t) or _IMG_PATH.search(t) or _LAST_SHOT.search(t)) and not _BAD_SHOT.search(t))
+    return bool((_SHOT.search(t) or _IMG_PATH.search(t) or _LAST_SHOT.search(t) or _JUDGE.search(t)) and not _BAD_SHOT.search(t))
 
 
 def prefetch(user_text: str) -> list:
@@ -109,6 +117,17 @@ def prefetch(user_text: str) -> list:
     if (imgs or _LAST_SHOT.search(user_text)) and _LOOK_IMG.search(user_text):
         return [("analyser_image", {"chemin": imgs[0] if imgs else "", "question": re.sub(r"\s+", " ", user_text)[:200]})]
     targets = _URL.findall(user_text) + htmls
+    if _JIMMY_WORK.search(user_text):
+        return [("travail_de_jimmy", {})]
+    if _CHECK_FILES.search(user_text) and not imgs:
+        return [("travail_de_jimmy", {})]
+    if _JUDGE.search(user_text) and not _BAD_SHOT.search(user_text):
+        args = {"question": re.sub(r"\s+", " ", user_text)[:240]}
+        if targets:
+            args["adresse"] = targets[0]
+        if _MOBILE.search(user_text):
+            args["largeur"] = "390"
+        return [("juger_rendu", args)]
     click = _CLICK.search(user_text)
     if click and click.group(1).strip():
         # « ouvre la page puis clique sur X » : le code enchaîne ouvrir -> cliquer -> relire la page ; le modèle n'a qu'à raconter ce qui s'est passé
@@ -191,6 +210,7 @@ class LocalAgent:
         self.packs = []
         self.history = []       # [{"role": "user"/"assistant", "content": ...}] : SES propres échanges
         self.thread = ""        # fil de la discussion (utilisateur / Jimmy), relu à chaque demande
+        self.session_id = None  # discussion en cours (pour lire le travail de Jimmy dans son fil d'activité)
 
     # ------------------------------------------------------------------ préparation
     def ready(self, start: bool = True) -> str:
@@ -255,6 +275,7 @@ class LocalAgent:
                 raise LocalError(why)
         # readonly (demande venue de Jimmy) : user_text vide = les outils qui écrivent ou lancent une commande refusent, par le code
         ctx = Context(cfg=self.cfg, user_text="" if readonly else user_text, engine=self.engine, on_step=self.on_step)
+        ctx.notes["session_id"] = self.session_id
         user_msg = user_text
         ex = self._extracts(user_text)
         if ex:
@@ -266,14 +287,22 @@ class LocalAgent:
         messages += self.history[-2 * HISTORY_TURNS:]
         messages.append({"role": "user", "content": user_msg})
         tools = self.registry.schemas()
+        final = ""
         for i, (name, args) in enumerate(prefetch(user_text)):
             if name not in self.registry.tools:
                 continue
             cid = f"pre_{i}"
             messages.append({"role": "assistant", "content": "", "tool_calls": [{
                 "id": cid, "type": "function", "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)}}]})
-            messages.append({"role": "tool", "tool_call_id": cid, "name": name,
-                             "content": self.registry.call(name, args, ctx)})
+            res = self.registry.call(name, args, ctx)
+            if res.startswith(FINAL) and not final:
+                final = res[len(FINAL):]
+            messages.append({"role": "tool", "tool_call_id": cid, "name": name, "content": res.replace(FINAL, "", 1)})
+        if final:
+            # l'outil a composé la réponse (mesures et regard du modèle de vision) : on la rend telle quelle, sans la laisser adoucir ni déformer
+            self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": final}]
+            self.last_journal, self.last_reason = list(ctx.journal), ""
+            return final, ""
         reply = ""
         seen, counts = set(), {}
         for _ in range(MAX_STEPS + 1):
@@ -299,6 +328,11 @@ class LocalAgent:
                 else:
                     seen.add(key)
                     result = self.registry.call(name, _args(c), ctx)
+                if result.startswith(FINAL):
+                    final = result[len(FINAL):]
+                    self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": final}]
+                    self.last_journal, self.last_reason = list(ctx.journal), ""
+                    return final, ""
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."

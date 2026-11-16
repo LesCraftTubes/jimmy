@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import extras
 import sessions
 import usage
 from chatview import ChatView
@@ -288,6 +289,7 @@ class _Signals(QObject):
     remote_stop = Signal()
     remote_new = Signal()
     remote_switch = Signal(str)
+    work = Signal(object)            # le travail de Jimmy en direct (outil lancé, résultat, commentaire)
     local_reply = Signal(str, str)   # réponse de l'IA locale, résumé à passer à Claude (ou vide)
     info = Signal(str)               # message système venu d'un fil de travail
     remote_ask = Signal(object)      # un appareil demande à se relier : à autoriser sur le PC
@@ -312,6 +314,7 @@ class JimmyWindow(QMainWindow):
         self.sig.remote_new.connect(self.on_new)
         self.sig.remote_switch.connect(self._on_remote_switch)
         self.sig.local_reply.connect(self._on_local_reply)
+        self.sig.work.connect(self._on_work)
         self.sig.info.connect(self.add_system)
         self.sig.dialog.connect(self._on_dialog)
         self.sig.remote_ask.connect(self._on_remote_ask)
@@ -331,17 +334,23 @@ class JimmyWindow(QMainWindow):
         self._handoff_note = ""    # mini-message à joindre au prochain message (reprise de contexte)
         self._pending_name = None  # (nom, manuel, ancien id) : le nom d'origine à donner à la discussion qui reprend
         self._to_delete = None     # ancienne discussion à supprimer une fois la nouvelle confirmée
+        self._extras_sid = None    # discussion à laquelle sont rattachés captures, dialogues et activité sauvegardés
+        self._replaying = False    # vrai pendant le rejeu d'une discussion : rien n'est sauvegardé en double
+        self._dirty_pages = set()  # fichiers de site modifiés par Jimmy pendant la tâche : Aurélie contrôle le rendu à la fin
+        self._edited_files = set() # tous les fichiers modifiés par Jimmy pendant la tâche : Aurélie les relit à la fin (syntaxe, secrets)
         self._note_inflight = ""   # mini-message de reprise envoyé mais pas encore confirmé (rejoué si l'envoi échoue)
         self._deferred = None      # discussion pleine rouverte : mémoire + suppression au prochain message
         self._long_retry = False
 
         self.bridge = ClaudeBridge(cfg)
+        self._extras_sid = self.bridge.session_id
         from local_server import LocalServer
         self._local_lock = threading.Lock()
         self._relay_msg = ""
         self._lserver = LocalServer(self._delegate, self._delegate_act)          # Jimmy (Claude) peut demander un travail de lecture à l'IA locale
         self.bridge.extra_env = self._lserver.env()
         self.bridge.on_step = self.sig.step.emit
+        self.bridge.on_work = self.sig.work.emit
         self.bridge.perm_ask = self._ask_permission
         self.speaker = Speaker(cfg)
         self.listener = Listener(cfg)
@@ -386,8 +395,7 @@ class JimmyWindow(QMainWindow):
         self.refresh_sessions()
         QTimer.singleShot(2500, self._session_housekeeping)
         if self.bridge.session_id:
-            for role, text in sessions.load_messages(self.bridge.workdir(), self.bridge.session_id)[-30:]:
-                self.add_message(role, text)
+            self._render_session(self.bridge.session_id, 30)
         self.listener.start()
         # Une tâche de Claude laissée en route par le Jimmy précédent (fermeture, mise à jour, redémarrage) ?
         self._job_timer = QTimer(self)
@@ -757,6 +765,21 @@ class JimmyWindow(QMainWindow):
             self.add_system("Attends la fin de la tâche en cours (ou appuie sur Stop).")
             self.refresh_sessions()
             return
+        if extras.is_local(sid):
+            if sid == self._extras_sid and not self.bridge.session_id:
+                return
+            self._leaving_session()
+            self.bridge.reset()
+            extras.drop_pending()
+            self._deferred = None
+            self._extras_sid = sid
+            self._clear_chat()
+            self._render_session(sid, 60, notice=True)
+            self.add_system("Discussion avec Aurélie reprise : tu peux continuer ici, elle se souvient de ce qui s'est dit.")
+            self._refresh_ctx()
+            self._swap_anim()
+            self.refresh_sessions()
+            return
         if not sid or sid == self.bridge.session_id:
             return
         self.bridge.set_session(sid)
@@ -768,11 +791,10 @@ class JimmyWindow(QMainWindow):
             self._deferred = (sid, sessions.display_name(self.bridge.workdir(), sid), sessions.is_manual(sid))
             self.bridge.reset()
         self._clear_chat()
-        msgs = sessions.load_messages(self.bridge.workdir(), sid)
-        if len(msgs) > 60:
-            self.add_system(f"{len(msgs) - 60} messages plus anciens masqués.")
-        for role, text in msgs[-60:]:
-            self.add_message(role, text)
+        self._leaving_session()
+        extras.drop_pending()
+        self._extras_sid = sid
+        self._render_session(sid, 60, notice=True)
         self.add_system("Discussion pleine : tu peux la relire. Ton prochain message continuera dans une nouvelle "
                         "discussion du même nom (l'essentiel est gardé en mémoire)." if was_full
                         else "Discussion reprise : tu peux continuer ici ou dans Claude Code.")
@@ -935,6 +957,7 @@ class JimmyWindow(QMainWindow):
         if pn and new and new != pn[2]:
             sessions.set_name(new, pn[0], manual=pn[1])      # la nouvelle garde EXACTEMENT le nom de l'ancienne
             self._pending_name = None
+        self._bind_extras()
         old = self._to_delete
         if old and new and new != old and sessions.session_alive(wd, new):
             self._to_delete = None
@@ -1022,8 +1045,7 @@ class JimmyWindow(QMainWindow):
         self.chat.clear()
         self._remote_quiet = True
         try:
-            for role, text in sessions.load_messages(self.bridge.workdir(), sid)[-60:]:
-                self.add_message(role, text)
+            self._render_session(sid, 60, feed=False)
         finally:
             self._remote_quiet = False
 
@@ -1238,6 +1260,7 @@ class JimmyWindow(QMainWindow):
         if role == "user":
             self.chat.add_user(text)
         elif role == "local":
+            self._keep_local(text)
             self.chat.add_assistant(text, f"{self._local_name().upper()} \u00b7 IA LOCALE", self._local_color())
         else:
             self.chat.add_assistant(text)
@@ -1398,7 +1421,9 @@ class JimmyWindow(QMainWindow):
             self._handoff()     # discussion déjà trop grosse : ce message part dans une nouvelle discussion
         self.busy = True
         self.thinking = True
-        self.listener.pause()
+        # Le micro RESTE OUVERT pendant que Jimmy travaille : tu peux parler pour ajouter une précision (elle est ajoutée à la tâche en cours).
+        # Il ne se coupe que quand Jimmy parle lui-même (voir _on_reply), pour qu'il ne s'entende pas.
+        self.listener.resume()
         if echo:
             self.add_message("user", text)
         self.set_state("thinking")
@@ -1463,7 +1488,7 @@ class JimmyWindow(QMainWindow):
     def _submit_local(self, text: str, echo: bool = True) -> None:
         self.busy = True
         self.thinking = True
-        self.listener.pause()
+        self.listener.resume()          # micro ouvert pendant que l'IA locale travaille (voir submit)
         if echo:
             self.add_message("user", text)
         self.set_state("thinking")
@@ -1474,6 +1499,7 @@ class JimmyWindow(QMainWindow):
             text = parts[1] if len(parts) > 1 else ""
         self._local_reason = ""
         self._local_last_q = text
+        self._local_q_kept = False
         self._set_actor("local")
         threading.Thread(target=self._work_local, args=(text,), daemon=True).start()
 
@@ -1493,6 +1519,110 @@ class JimmyWindow(QMainWindow):
         c = str(self.cfg.get("local_color") or "#4ade80")
         return c if re.fullmatch(r"#[0-9a-fA-F]{6}", c) else "#4ade80"
 
+    # ------------------------------------------------------------------ ce qui se garde par discussion (captures, dialogues, activité, rendu)
+    def _current_sid(self):
+        """La discussion affichée : celle de Claude, ou (si Claude n'est pas intervenu) celle menée seulement avec Aurélie."""
+        return self.bridge.session_id or (self._extras_sid if extras.is_local(self._extras_sid) else None)
+
+    def _bind_extras(self) -> None:
+        """Dès que la discussion de Claude a un identifiant, tout ce qui attendait lui est rattaché ; une discussion menée seulement avec Aurélie
+        devient celle de Claude sans rien perdre ; et l'historique de l'ancienne discussion suit la nouvelle (reprise de contexte)."""
+        sid = self.bridge.session_id
+        if sid and sid != self._extras_sid:
+            pn = self._pending_name
+            old = self._to_delete or (pn[2] if pn else None) or (self._extras_sid if extras.is_local(self._extras_sid) else None)
+            extras.bind(sid, old)
+            self._extras_sid = sid
+
+    def _keep(self, kind: str, **data) -> None:
+        if self._replaying:
+            return
+        try:
+            self._bind_extras()
+            sid = self.bridge.session_id
+            if not sid and (self._extras_sid is None or extras.is_local(self._extras_sid)):
+                if self._extras_sid is None:                      # premier échange avec Aurélie, sans Claude : elle a SA discussion
+                    self._extras_sid = extras.new_local_id()
+                    extras.bind(self._extras_sid)
+                    QTimer.singleShot(0, self.refresh_sessions)
+                sid = self._extras_sid
+            extras.add(sid, kind, **data)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _keep_local(self, text: str) -> None:
+        """Aurélie répond : on garde sa réponse ET ta question (elle n'est pas dans le fichier de la discussion de Claude), pour que la
+        conversation avec elle revienne en entier à la réouverture, dans l'ordre."""
+        if self._replaying:
+            return
+        if not getattr(self, "_local_q_kept", True) and getattr(self, "_local_last_q", ""):
+            self._local_q_kept = True
+            self._keep("user", text=self._local_last_q)
+        self._keep("local", text=text)
+
+    def _render_session(self, sid: str, limit: int = 60, notice: bool = False, feed: bool = True) -> None:
+        """Affiche une discussion : les messages de Claude ET ce qui avait été gardé (captures, messages d'Aurélie, dialogues, passages de main),
+        remis dans l'ordre où ça s'est passé. Le fil d'activité et le dernier rendu du panneau de droite reviennent aussi."""
+        wd = self.bridge.workdir()
+        timeline = sessions.load_timeline(wd, sid)
+        if notice and len(timeline) > limit:
+            self.add_system(f"{len(timeline) - limit} messages plus anciens masqués.")
+        # Seulement si la discussion est TROP LONGUE pour tout afficher : on écarte ce qui est plus ancien que le premier message affiché.
+        # Sinon on garde tout, y compris ce qui s'est passé avec Aurélie AVANT le premier message de Claude.
+        first = timeline[-limit][0] if len(timeline) > limit else 0.0
+        timeline = timeline[-limit:]
+        items = [(t, 0, ("msg", role, text)) for t, role, text in timeline]
+        for it in extras.load(sid, kinds=("image", "local", "user", "dialog", "xfer")):
+            if it.get("ts", 0) >= first:
+                items.append((it["ts"], 1, ("extra", it)))
+        items.sort(key=lambda x: (x[0], x[1]))
+        self._replaying = True
+        try:
+            for _t, _p, payload in items:
+                if payload[0] == "msg":
+                    self.add_message(payload[1], payload[2])
+                else:
+                    self._replay_item(payload[1])
+        finally:
+            self._replaying = False
+        if feed:
+            self._replay_feed(sid)
+
+    def _replay_item(self, it: dict) -> None:
+        kind = it.get("kind")
+        if kind == "user":
+            self.add_message("user", str(it.get("text", "")))
+        elif kind == "local":
+            self.add_message("local", str(it.get("text", "")))
+        elif kind == "dialog":
+            self.add_dialog(str(it.get("frm", "local")), str(it.get("to", "jimmy")), str(it.get("text", "")))
+        elif kind == "xfer":
+            self._replay_xfer(it)
+        elif kind == "image":
+            self._replay_image(it)
+
+    def _replay_xfer(self, it: dict) -> None:
+        pass
+
+    def _replay_image(self, it: dict) -> None:
+        pass
+
+    def _replay_feed(self, sid) -> None:
+        pass
+
+    def _leaving_session(self) -> None:
+        pass
+
+    # ------------------------------------------------------------------ le travail de Jimmy en direct, et le rôle d'Aurélie après chaque tâche
+    def _on_work(self, item: dict) -> None:
+        self._work_event(item)
+
+    def _work_event(self, item: dict) -> None:
+        pass
+
+    def _after_task(self) -> None:
+        pass
+
     # Qui travaille : l'interface web montre Jimmy et l'IA locale côte à côte (surchargé dans webwindow)
     def _set_actor(self, who: str, why: str = "") -> None:
         pass
@@ -1506,7 +1636,7 @@ class JimmyWindow(QMainWindow):
         Le fil est donné dans son message système, sous forme de lignes « Utilisateur : ... / Jimmy : ... », et non comme de
         faux tours de parole : un petit modèle recopierait sinon l'étiquette dans ses propres réponses.
         Reconstruit à chaque demande depuis la discussion : rien ne se perd au redémarrage ni au changement de discussion."""
-        agent, sid = self.local_agent, self.bridge.session_id
+        agent, sid = self.local_agent, self._current_sid()
         if agent is None:
             return
         lines = []
@@ -1514,9 +1644,16 @@ class JimmyWindow(QMainWindow):
         if note:
             lines.append("Reprise de contexte : " + " ".join(note.split())[:600])
         if sid:
-            for t in sessions.recent_turns(self.bridge.workdir(), sid, 8):
-                lines.append(("Utilisateur : " if t["role"] == "user" else "Jimmy : ") + t["content"])
+            full = sessions.load_timeline(self.bridge.workdir(), sid)
+            turns = [(t, "Utilisateur" if role == "user" else "Jimmy", " ".join(str(x).split())[:500]) for t, role, x in full[-10:]]
+            first = turns[0][0] if len(full) > 10 else 0.0
+            for it in extras.load(sid, kinds=("user", "local")):
+                if it.get("ts", 0) >= first - 1:
+                    turns.append((it["ts"], "Utilisateur" if it["kind"] == "user" else "Toi (Aurélie)", " ".join(str(it.get("text", "")).split())[:500]))
+            turns.sort(key=lambda x: x[0])
+            lines += [f"{who} : {text}" for _t, who, text in turns[-12:]]
         agent.thread = "\n".join(lines)
+        agent.session_id = sid
 
     def _local_name(self) -> str:
         return str(self.cfg.get("local_name") or "Aurélie")
@@ -1581,6 +1718,7 @@ class JimmyWindow(QMainWindow):
         if speak:
             # L'IA locale parle avec SA voix (le texte s'écrit au rythme de la voix, comme pour Jimmy)
             self._remote_emit({"type": "message", "role": "assistant", "text": text})
+            self._keep_local(text)
             self.speaker.voice_override = str(self.cfg.get("local_voice") or "Éloïse")
             self.busy = True
             self.listener.pause()
@@ -1617,6 +1755,7 @@ class JimmyWindow(QMainWindow):
     def add_dialog(self, frm: str, to: str, text: str) -> None:
         name = self._local_name()
         names = {"local": name, "jimmy": "Jimmy"}
+        self._keep("dialog", frm=frm, to=to, text=text)
         self._remote_emit({"type": "message", "role": "assistant", "text": f"{names[frm]} \u2192 {names[to]} : {text}"})
         if hasattr(self.chat, "add_dialog"):
             self.chat.add_dialog(frm, to, names[frm], names[to], text, self._local_color() if frm == "local" else "")
@@ -1654,7 +1793,7 @@ class JimmyWindow(QMainWindow):
     def _delegate_act_inner(self, cmd: str, req: dict) -> str:
         """Jimmy (Claude) demande à Aurélie de CAPTURER une page ou d'ANALYSER une image : travail gratuit pour l'abonnement.
         La capture s'affiche dans la discussion et dans le panneau de droite ; Jimmy reçoit un rapport TEXTE (pas l'image)."""
-        from brain import live, live_tools, vision
+        from brain import design, live, live_tools, vision
         try:
             if cmd == "capture":
                 lb = live.instance
@@ -1681,13 +1820,25 @@ class JimmyWindow(QMainWindow):
                     self.sig.dialog.emit("local", "jimmy", ans)
                     return ans
                 rep = live_tools._fmt_report(lb.report())
-                try:
-                    seen = vision.ocr(cap["file"])
-                except Exception as e:  # noqa: BLE001
-                    seen = f"(lecture du texte indisponible : {e})"
-                ans = (f"Capture enregistrée : {cap['file']} ({cap['w']}×{cap['h']} px). L'utilisateur la voit déjà dans la discussion et dans "
-                       f"le panneau de droite.\n{rep}\nTexte lu dans l'image :\n{seen[:1500] or '(aucun)'}")
-                self.sig.dialog.emit("local", "jimmy", f"Capture faite ({cap['w']}×{cap['h']}). " + rep.splitlines()[-1][:220])
+                look = str(req.get("look") or "").strip()
+                if look:
+                    # « regarde vraiment » : mesures + lecture du texte + modèle de vision (peut prendre une vingtaine de secondes)
+                    self.sig.dialog.emit("jimmy", "local", "Regarde le rendu : " + look[:200])
+                    ans = (f"Capture enregistrée : {cap['file']} ({cap['w']}×{cap['h']} px). L'utilisateur la voit déjà dans la discussion et dans le panneau de droite.\n"
+                           f"{rep}\n" + vision.analyze(self.cfg, cap["file"], look))
+                    self.sig.dialog.emit("local", "jimmy", "J'ai regardé le rendu : " + " ".join(ans.split("Ce que voit le modèle de vision")[-1].split())[:260])
+                else:
+                    try:
+                        seen = vision.ocr(cap["file"])
+                    except Exception as e:  # noqa: BLE001
+                        seen = f"(lecture du texte indisponible : {e})"
+                    facts = design.format_audit(cap.get("audit") or {})
+                    ans = (f"Capture enregistrée : {cap['file']} ({cap['w']}×{cap['h']} px). L'utilisateur la voit déjà dans la discussion et dans "
+                           f"le panneau de droite.\n{rep}\nMESURES EXACTES de la page (couleurs, contrastes, polices) :\n{facts}\n"
+                           f"Texte lu dans l'image :\n{seen[:1200] or '(aucun)'}\n"
+                           "(Pour un vrai regard sur l'aspect visuel, relance la commande capture avec --look \"ta question\".)")
+                    probs = design.verdict(cap.get("audit") or {})
+                    self.sig.dialog.emit("local", "jimmy", f"Capture faite ({cap['w']}×{cap['h']}). " + ("Problèmes mesurés : " + ", ".join(probs) + "." if probs else rep.splitlines()[-1][:220]))
             else:
                 path = str(req.get("path", "")).strip()
                 self._announce_handoff("jimmy", "local", "il lui demande de regarder une image")
@@ -1840,6 +1991,7 @@ class JimmyWindow(QMainWindow):
 
     def _finish(self) -> None:
         self._set_actor("idle")
+        self._after_task()
         self.busy = False
         self.thinking = False
         self.speaking = False
@@ -1921,6 +2073,12 @@ class JimmyWindow(QMainWindow):
         self._pending_name = None
         self._to_delete = None
         self._deferred = None
+        self._leaving_session()
+        extras.drop_pending()
+        self._extras_sid = None
+        self._dirty_pages.clear()
+        self._edited_files.clear()
+        self._replay_feed(None)
         self._refresh_ctx()
         self._clear_chat()
         self.session_list.clearSelection()

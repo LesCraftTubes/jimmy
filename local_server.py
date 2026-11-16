@@ -4,9 +4,10 @@ outils de LECTURE (jamais d'écriture ni de commande : elles ne partent que d'un
 
 Côté Claude, trois commandes (ou `Jimmy.exe --local ...` sur la version installée) :
   jimmy_local.py ask "question"                      : travail de lecture / recherche
-  jimmy_local.py capture ADRESSE [--full] [--width N] [--element SELECTEUR] [--caption TEXTE]
+  jimmy_local.py capture ADRESSE [--full] [--width N] [--element SELECTEUR] [--caption TEXTE] [--look "question"]
                                                      : Aurélie ouvre la page dans son navigateur, la capture (visible par l'utilisateur dans la
-                                                       discussion et dans le panneau de droite) et renvoie un rapport texte + le texte lu
+                                                       discussion et dans le panneau de droite) et renvoie un rapport texte + les mesures exactes (couleurs,
+                                                       contrastes, polices) + le texte lu ; avec --look, Aurélie REGARDE aussi la capture (modèle de vision)
   jimmy_local.py see CHEMIN_IMAGE ["question"]       : Aurélie analyse une image (texte lu, couleurs, modèle de vision s'il y en a un)
 """
 import json
@@ -92,7 +93,7 @@ def request(payload: dict, port=None, token=None, timeout: float = 240.0) -> tup
         return False, f"L'IA locale ne répond pas ({e}) : fais ce travail toi-même."
 
 
-USAGE = ('Usage : jimmy_local.py ask "question" | capture ADRESSE [--full] [--width N] [--element SELECTEUR] [--caption TEXTE] '
+USAGE = ('Usage : jimmy_local.py ask "question" | capture ADRESSE [--full] [--width N] [--element SELECTEUR] [--caption TEXTE] [--look QUESTION] '
          '| see CHEMIN_IMAGE ["question"]')
 
 
@@ -117,9 +118,9 @@ def main(argv=None) -> int:
     elif cmd == "capture":
         full = "--full" in rest
         rest = [a for a in rest if a != "--full"]
-        width, element, caption = _opt(rest, "--width", "0"), _opt(rest, "--element"), _opt(rest, "--caption")
+        width, element, caption, look = _opt(rest, "--width", "0"), _opt(rest, "--element"), _opt(rest, "--caption"), _opt(rest, "--look")
         ok, answer = request({"cmd": "capture", "url": rest[0] if rest else "", "full": full, "width": width, "element": element,
-                              "caption": caption})
+                              "caption": caption, "look": look})
     else:
         ok, answer = request({"cmd": "see", "path": rest[0], "question": " ".join(rest[1:])})
     print(answer)

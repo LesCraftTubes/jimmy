@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from config import Config, app_dir, data_dir
-from textutils import fold, parse_claude_output, steps_from_event
+from textutils import fold, parse_claude_output, steps_from_event, work_from_event
 
 
 class ClaudeError(Exception):
@@ -198,6 +198,7 @@ class ClaudeBridge:
         self.extra_env = {}
         # Étapes en direct (lecture, modification, commande...) : appelé depuis le thread de travail.
         self.on_step = None
+        self.on_work = None        # (dict) le travail de Jimmy en direct : outils lancés, résultats, commentaires (panneau de droite)
         # % de la limite de session (mis à jour par la fenêtre) pour le mode économie auto.
         self.usage_pct = 0.0
         self._no_effort = False
@@ -358,8 +359,9 @@ class ClaudeBridge:
                 f"à l'IA locale avec {run} ask \"ta question\" (elle ne consomme pas ton quota) ; garde pour toi le raisonnement et les modifications. "
                 f"POUR VOIR un site ou une image, passe aussi par elle : {run} capture ADRESSE [--full] [--width 390] [--element SELECTEUR] "
                 f"(elle ouvre la page dans son navigateur, la capture, l'affiche à l'utilisateur dans la discussion et dans le panneau de droite, "
-                f"et te rend un rapport texte : titres, images cassées, débordements, erreurs, texte lu) ; {run} see CHEMIN_IMAGE \"question\" "
-                f"(elle analyse une image : texte lu, couleurs). Ne regarde une image toi-même (lecture du fichier) qu'en dernier recours : "
+                f"et te rend un rapport texte : titres, images cassées, débordements, erreurs, MESURES EXACTES des couleurs, contrastes et polices, texte lu ; "
+                f"ajoute --look \"ta question\" pour qu'elle REGARDE aussi la capture avec son modèle de vision) ; {run} see CHEMIN_IMAGE \"question\" "
+                f"(elle analyse une image : texte lu, couleurs, et ce qu'elle voit). Ne regarde une image toi-même (lecture du fichier) qu'en dernier recours : "
                 f"cela coûte beaucoup de tokens. ")
 
     def _build_cmd(self, cli: str, resume: bool) -> list:
@@ -566,6 +568,12 @@ class ClaudeBridge:
                 elif self.on_step:
                     for step in steps_from_event(evt):
                         self.on_step(step)
+                if self.on_work and evt.get("type") in ("assistant", "user"):
+                    try:
+                        for w in work_from_event(evt):
+                            self.on_work(w)
+                    except Exception:  # noqa: BLE001
+                        pass
                 if evt.get("type") != "result":
                     self._cancel_close()   # de nouveaux événements : la tâche continue (message ajouté en cours de route)
             if not self._detached:

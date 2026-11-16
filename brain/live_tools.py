@@ -6,6 +6,7 @@ Ouvrir, lire, contrôler, défiler, capturer une page et analyser une image sont
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import live, vision
@@ -114,6 +115,87 @@ def _t_screen(a, ctx):
     return f"Capture de l'écran enregistrée ({res['w']}×{res['h']} px) : {res['file']}\nElle est déjà affichée dans la discussion."
 
 
+def _t_judge(a, ctx):
+    """Ouvre la page (si une adresse est donnée), la capture, la mesure (couleurs, contrastes, polices...) et la regarde avec le modèle de vision."""
+    lb = _lb()
+    url = str(a.get("adresse", "")).strip()
+    if url:
+        res = lb.open(url)
+        if not res.get("ok"):
+            return f"Impossible d'ouvrir la page : {res.get('error') or 'échec du chargement'}."
+    try:
+        width = int(str(a.get("largeur", "0") or "0"))
+    except ValueError:
+        width = 0
+    cap = lb.capture(width=width, caption=str(a.get("legende", "")).strip() or "Rendu à juger", who="local")
+    if not cap.get("ok"):
+        return f"Capture impossible : {cap.get('error')}."
+    ctx.notes["last_capture"] = cap["file"]
+    ctx.step("Regard", "j'analyse le rendu" + (" avec le modèle de vision" if vision.vision_model(ctx.cfg) else " avec les mesures de la page"))
+    q = str(a.get("question", "")).strip() or "Le rendu est-il réussi ? Que penses-tu des couleurs, de la lisibilité et de la mise en page ?"
+    from .tools import FINAL
+    return FINAL + vision.judge_reply(vision.inspect(ctx.cfg, cap["file"], q), cap.get("title") or "")
+
+
+def _t_jimmy_work(a, ctx):
+    """Ce que Jimmy fait (ou vient de faire), lu dans le fil d'activité de la discussion : aucun token."""
+    import extras
+    import time as _t
+    sid = ctx.notes.get("session_id")
+    if not sid:
+        return "Je n'ai pas de discussion en cours : je ne vois pas encore de travail de Jimmy."
+    items = extras.load(sid, kinds=("work",))
+    if not items:
+        return "Jimmy n'a encore rien fait de visible dans cette discussion (aucun fichier lu ou modifié, aucune commande)."
+    last, task = items[-1]["ts"], []
+    for it in reversed(items):                                 # la « dernière tâche » = jusqu'à une pause de plus de 8 minutes
+        if last - it["ts"] > 480:
+            break
+        task.append(it)
+        last = it["ts"]
+    task.reverse()
+    starts = [i for i in task if i.get("phase") == "start"]
+    ends = {i.get("id"): i for i in task if i.get("phase") == "end"}
+    kinds = {"Read": 0, "Edit": 0, "MultiEdit": 0, "Write": 0, "cmd": 0, "other": 0}
+    files, failed = [], []
+    for st in starts:
+        tool = st.get("tool", "")
+        k = tool if tool in kinds else ("cmd" if tool in ("Bash", "PowerShell") else "other")
+        kinds[k] += 1
+        if tool in ("Edit", "MultiEdit", "Write") and st.get("target"):
+            files.append(Path(st["target"]).name)
+        e = ends.get(st.get("id"))
+        if e is not None and not e.get("ok"):
+            failed.append(f"{st.get('label', tool)} : {str(e.get('out', ''))[:90]}")
+    running = [s for s in starts if s.get("id") not in ends]
+    ago = int(_t.time() - task[-1]["ts"])
+    out = [f"Dernière activité de Jimmy : il y a {ago} s." if ago < 3600 else "Dernière activité de Jimmy : il y a plus d'une heure.",
+           f"Dans cette tâche : {kinds['Read']} lecture(s), {kinds['Edit'] + kinds['MultiEdit'] + kinds['Write']} modification(s), {kinds['cmd']} commande(s), {kinds['other']} autre(s) action(s)."]
+    if files:
+        out.append("Fichiers modifiés : " + ", ".join(dict.fromkeys(files)) + ".")
+    if running:
+        out.append("En ce moment : " + str(running[-1].get("label", "une action")) + ".")
+    if failed:
+        out.append("Actions en échec : " + " ; ".join(failed[:3]) + ".")
+    says = [i for i in task if i.get("phase") == "say"]
+    if says:
+        out.append("Dernière chose qu'il a dite : « " + str(says[-1].get("text", ""))[:200] + " »")
+    return "\n".join(out)
+
+
+def _t_check_files(a, ctx):
+    """Relit des fichiers : syntaxe et secrets écrits en clair (lecture seule)."""
+    from . import checks
+    raw = str(a.get("chemins", "")).replace("\n", ";")
+    paths = [x.strip().strip('"') for x in re.split(r"[;,]", raw) if x.strip()]
+    if not paths:
+        return "Donne le chemin d'au moins un fichier."
+    base = Path(str(ctx.cfg.get("workdir") or Path.home()))
+    full = [str(Path(x) if Path(x).is_absolute() else base / x) for x in paths[:12]]
+    res = checks.check_files(full)
+    return checks.summary(res)
+
+
 def _t_image(a, ctx):
     path = str(a.get("chemin", "")).strip()
     if path.lower() in ("", "derniere", "dernière", "last", "la derniere capture", "la dernière capture"):
@@ -150,6 +232,14 @@ def register(reg) -> None:
                  order=_ORDER_UI, step="Saisie"))
     reg.add(Tool("capturer_ecran", "Capture TOUT l'écran du PC (seulement si l'utilisateur le demande).", {"legende": "légende courte (facultatif)"},
                  _t_screen, required=[], order=_ORDER_SCREEN, step="Capture"))
+    reg.add(Tool("travail_de_jimmy", "Dit ce que JIMMY est en train de faire ou vient de faire (fichiers lus et modifiés, commandes, échecs), d'après le fil d'activité. "
+                 "À utiliser pour « que fait Jimmy ? », « où en est-il ? », « qu'a-t-il modifié ? ».", {"_": "(aucun paramètre)"}, _t_jimmy_work, required=[], step="Activité"))
+    reg.add(Tool("relire_fichiers", "Relit des fichiers (par exemple ceux que Jimmy vient de modifier) : erreurs de syntaxe (Python, JSON, JavaScript, HTML, CSS) et mots de passe ou clés écrits en clair.",
+                 {"chemins": "chemins séparés par des points-virgules"}, _t_check_files, step="Relecture"))
+    reg.add(Tool("juger_rendu", "REGARDE vraiment le rendu d'une page : l'ouvre, la capture, mesure ses couleurs, contrastes et polices, et la regarde avec le modèle de vision. "
+                 "À utiliser pour juger le design, les couleurs, la lisibilité ou la mise en page d'un site.",
+                 {"adresse": "adresse à ouvrir d'abord (facultatif si une page est déjà ouverte)", "question": "ce que tu veux savoir (facultatif)",
+                  "largeur": "largeur en pixels, ex. 390 pour un mobile (facultatif)", "legende": "légende courte (facultatif)"}, _t_judge, required=[], step="Regard"))
     reg.add(Tool("analyser_image", "Regarde une image (capture, photo, fichier) : texte qu'elle contient, couleurs, et description si un modèle de vision est installé. "
                  "Sans chemin, prend la dernière capture.",
                  {"chemin": "chemin de l'image (vide = dernière capture)", "question": "ce que tu veux savoir (facultatif)"}, _t_image,

@@ -84,7 +84,7 @@
         </div>
         <label class="select" title="Modèle Claude : Haiku consomme le moins de quota, Opus le plus"><select id="selModel"></select></label>
         <label class="select" title="Effort bas = réponses plus rapides et moins de tokens"><select id="selEffort"></select></label>
-        <button class="icon-btn live-toggle" id="btnLive" title="Écran en direct : voir ce que fait Aurélie" aria-label="Écran en direct" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><i class="live-pip"></i></button>
+        <button class="icon-btn live-toggle" id="btnLive" title="Activité en direct : ce que font Jimmy et Aurélie" aria-label="Activité en direct" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><i class="live-pip"></i></button>
         <div class="menu-wrap">
           <button class="icon-btn" id="btnVoiceMenu" title="Voix et écoute"><svg viewBox="0 0 24 24"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4"/></svg></button>
           <div class="menu" id="voiceMenu" hidden>
@@ -137,43 +137,21 @@
   </main>
 
   <!-- ============================== panneau de droite : le PC d'Aurélie, en direct ============================== -->
-  <aside id="live" hidden aria-label="Écran en direct">
+  <aside id="live" hidden aria-label="Activité en direct">
     <div class="live-resize" id="liveResize" title="Glisse pour élargir ou réduire"></div>
     <div class="live-head">
-      <div class="live-title"><i class="live-dot" id="liveDot"></i><b>Écran en direct</b><em id="liveWho">en veille</em></div>
+      <div class="live-title"><i class="live-dot" id="liveDot"></i><b>Activité en direct</b><em id="liveWho">en veille</em><i class="live-count" id="feedCount"></i></div>
       <div class="live-btns">
-        <button class="icon-btn" id="liveSnap" title="Capturer l'écran affiché et le mettre dans la discussion" aria-label="Capturer"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
         <button class="icon-btn" id="liveCloseBtn" title="Fermer le panneau" aria-label="Fermer"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
     </div>
-    <div class="live-tabs" id="liveTabs">
-      <button data-tab="screen" class="on">Écran</button>
-      <button data-tab="feed">Activité<i id="feedCount"></i></button>
-      <button data-tab="gallery">Captures<i id="galCount"></i></button>
-    </div>
-    <section class="live-pane" data-pane="screen">
-      <form class="live-url" id="liveUrlForm" autocomplete="off">
-        <input id="liveUrl" placeholder="Adresse à ouvrir : site, localhost ou fichier .html" spellcheck="false">
-        <button class="go" type="submit">Ouvrir</button>
-      </form>
-      <div class="live-stage" id="liveStage">
-        <div class="live-shot" id="liveShot" hidden><img id="liveFrame" alt="Écran du navigateur d'Aurélie"><i class="live-ring" id="liveRing"></i><span class="live-load" id="liveLoad"></span></div>
-        <div class="live-empty" id="liveEmpty">
-          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-          <b>Rien d'ouvert pour l'instant</b>
-          <span>Quand Aurélie ou Jimmy travaille sur un site, tu le vois ici en direct, comme sur un vrai PC. Cela ne coûte aucun token. Tu peux aussi ouvrir une adresse toi-même ci-dessus.</span>
-        </div>
-      </div>
-      <div class="live-meta"><b id="liveTitle"></b><span id="liveBadge">en pause</span></div>
-    </section>
-    <section class="live-pane" data-pane="feed" hidden><div id="feed"></div></section>
-    <section class="live-pane" data-pane="gallery" hidden><div id="gallery"></div></section>
+    <div id="feed"></div>
   </aside>
 </div>
 
 <div id="dropHint" hidden><div>Dépose les fichiers ici pour les joindre au message</div></div>
 <div id="sessTip" hidden></div>
-<div id="lightbox" hidden role="dialog" aria-label="Capture en grand"><figure><img id="lbImg" alt=""><figcaption><span id="lbCap"></span><span class="lb-btns"><button id="lbShow">Mettre dans la discussion</button><button id="lbAttach">Joindre au prochain message</button><button id="lbClose">Fermer</button></span></figcaption></figure></div>
+<div id="lightbox" hidden role="dialog" aria-label="Capture en grand"><figure><img id="lbImg" alt=""><figcaption><span id="lbCap"></span><span class="lb-btns"><button id="lbAttach">Joindre au prochain message</button><button id="lbClose">Fermer</button></span></figcaption></figure></div>
 <div id="toasts"></div>
 <script src="app.js"></script>
 </body>

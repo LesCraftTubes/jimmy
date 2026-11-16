@@ -18,6 +18,7 @@ from pathlib import Path
 from . import web
 
 MAX_RESULT = 6000
+FINAL = "\x00FINAL\x00"      # un outil qui commence son résultat par ce marqueur fournit la RÉPONSE FINALE, composée par le code : le petit modèle ne la reformule pas
 _SECRET_FILE = re.compile(r"(\.env|\.pem|\.key|\.ppk|id_rsa|id_ed25519|credentials|secret|password|passwd|token|\.kdbx)", re.I)
 
 
@@ -80,12 +81,15 @@ class Registry:
         except Exception as e:  # noqa: BLE001
             out = f"Erreur de l'outil {name} : {e}"
         out = str(out if out is not None else "")
+        shown = out.replace(FINAL, "", 1)
         # La ligne affichée est la première qui apprend quelque chose (pas l'en-tête entre crochets des résultats).
-        first = next((ln.strip().lstrip("- ") for ln in out.splitlines() if ln.strip() and not ln.strip().startswith("[")), "") \
-            or next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+        first = next((ln.strip().lstrip("- ") for ln in shown.splitlines() if ln.strip() and not ln.strip().startswith("[")), "") \
+            or next((ln.strip() for ln in shown.splitlines() if ln.strip()), "")
         if name != "passer_a_claude":
             ctx.journal.append(f"{name}({' '.join(str(v) for v in args.values())[:80]}) -> {first[:140]}")
         ctx.step("Résultat", first[:110])      # l'utilisateur voit ce que l'outil a VRAIMENT renvoyé (le modèle peut se tromper en le résumant)
+        if out.startswith(FINAL):
+            return out
         return out if len(out) <= MAX_RESULT else out[:MAX_RESULT] + "\n… (résultat tronqué)"
 
 

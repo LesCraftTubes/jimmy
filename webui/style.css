@@ -493,3 +493,37 @@ html[data-look="cyber"] .agent { border-radius: 2px; } html[data-look="cyber"] .
 .msg.image figure { width: fit-content; min-width: 280px; }
 .feed-row { min-width: 0; } .feed-row span { overflow-wrap: anywhere; } #feed { overflow-x: hidden; }
 .live-stage { background-color: color-mix(in srgb, var(--bg) 25%, #0a0c12); }
+
+/* ---- le travail de Jimmy en direct dans le fil d'activité */
+.feed-row.work { grid-template-columns: 52px 1fr 22px; align-items: start; }
+.feed-row.work .lbl { display: block; color: var(--text); }
+.feed-row.work .tgt { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 6px; background: var(--elev2); color: var(--muted); font-family: var(--mono); font-size: 11.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.feed-row.work .tgt[hidden], .feed-row.work .res[hidden], .feed-row.work details[hidden] { display: none; }
+.feed-row.work .res { display: block; margin-top: 4px; font-style: normal; font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 74px; overflow: hidden; }
+.feed-row.work[data-state="err"] { border-left-color: var(--bad); } .feed-row.work[data-state="err"] .res { color: var(--bad); }
+.feed-row.work details { margin-top: 5px; } .feed-row.work summary { cursor: pointer; font-size: 11.5px; color: var(--faint); user-select: none; }
+.feed-row.work summary:hover { color: var(--text); }
+.feed-row.work pre { margin: 5px 0 0; padding: 7px 9px; border-radius: 8px; background: color-mix(in srgb, var(--bg) 60%, #000); font-family: var(--mono); font-size: 11.5px; line-height: 1.45; max-height: 190px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feed-row.work pre .add { color: #4ade80; background: color-mix(in srgb, #4ade80 10%, transparent); display: block; } .feed-row.work pre .del { color: #fb7185; background: color-mix(in srgb, #fb7185 10%, transparent); display: block; }
+.feed-row.work .st { width: 16px; height: 16px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--faint); }
+.feed-row.work[data-state="run"] .st { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+.feed-row.work[data-state="ok"] .st, .feed-row.work[data-state="done"] .st { border: 0; background: var(--ok); position: relative; }
+.feed-row.work[data-state="ok"] .st::after, .feed-row.work[data-state="done"] .st::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px; border: solid #04121a; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.feed-row.work[data-state="err"] .st { border: 0; background: var(--bad); }
+.feed-row.work[data-kind="edit"], .feed-row.work[data-kind="write"] { border-left-color: var(--accent2); }
+.feed-row.work[data-kind="cmd"] { border-left-color: var(--warn); }
+.msg.image .miss { color: var(--muted); }
+.live-title .live-count { font-style: normal; font-size: 11px; min-width: 18px; padding: 1px 6px; border-radius: 999px; background: var(--elev2); color: var(--muted); }
+.live-title .live-count:empty { display: none; }
+#live #feed { padding: 12px; }
+
+/* ---- barre du haut : jamais de superposition, quelle que soit la place (panneau d'activité ouvert ou non) */
+#top { column-gap: 14px; }
+.status-pill { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.status-text { min-width: 0; }
+.status-text span { max-width: min(30vw, 360px); }
+.duo { flex: 1 1 auto; min-width: 0; }
+.top-right { flex: 0 0 auto; }
+@container (max-width: 1340px) { .duo { order: 3; flex: 1 0 100%; padding: 2px 0 0; } .status-text span { max-width: 38vw; } }
+@container (max-width: 860px) { .top-right .select { display: none; } .status-text span { display: none; } }
+@container (max-width: 620px) { .top-right .seg { display: none; } }

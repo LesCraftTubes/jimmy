@@ -614,6 +614,73 @@ def steps_from_event(evt) -> list:
     return steps
 
 
+_SECRET_FILE = re.compile(r"(\.env\b|\.pem$|\.key$|\.ppk$|id_rsa|id_ed25519|credentials|secret|passw|token|\.kdbx|config\.php|wp-config)", re.I)
+_SECRET_VAL = re.compile(r"(?i)((?:pass(?:word|wd)?|pwd|token|secret|api[_-]?key|apikey|authorization|bearer|cle|clé)\s*[=:]\s*|-p\s?|--password[= ]|Bearer\s+)(\S+)")
+
+
+def redact(text: str) -> str:
+    """Masque ce qui ressemble à un mot de passe, un jeton ou une clé avant d'afficher ou de garder un texte."""
+    return _SECRET_VAL.sub(lambda m: m.group(1) + "***", str(text or ""))
+
+
+def _diff_text(old: str, new: str, n: int = 320) -> str:
+    def cut(t):
+        t = str(t or "")
+        return t if len(t) <= n else t[:n] + " …"
+    o, w = cut(old).splitlines() or [""], cut(new).splitlines() or [""]
+    return "\n".join(["- " + l for l in o[:8]] + ["+ " + l for l in w[:8]])
+
+
+def work_from_event(evt) -> list:
+    """Le TRAVAIL de Jimmy, en direct, pour le panneau de droite : un événement `stream-json` -> éléments
+    {"phase": "start" | "end" | "say", ...}. Début d'un outil (avec le détail : extrait modifié, commande, fichier...), son résultat, et ce que Jimmy dit."""
+    if not isinstance(evt, dict):
+        return []
+    typ, content = evt.get("type"), (evt.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return []
+    out = []
+    if typ == "assistant":
+        tools = [c for c in content if isinstance(c, dict) and c.get("type") == "tool_use"]
+        if not tools:
+            return []         # message final : c'est la réponse, pas du travail
+        for c in content:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "text" and c.get("text", "").strip():
+                out.append({"phase": "say", "text": redact(_short(c["text"], 380))})
+            elif c.get("type") == "tool_use":
+                name = str(c.get("name", ""))
+                inp = c.get("input") if isinstance(c.get("input"), dict) else {}
+                target = str(inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or "")
+                item = {"phase": "start", "id": str(c.get("id", "")), "tool": name, "label": redact(describe_tool(name, inp)), "target": target}
+                hidden = bool(target and _SECRET_FILE.search(target))
+                if hidden:
+                    item["detail"] = "(contenu masqué : ce fichier peut contenir un secret)"
+                elif name == "Edit":
+                    item["detail"] = redact(_diff_text(inp.get("old_string"), inp.get("new_string")))
+                elif name == "MultiEdit":
+                    item["detail"] = redact("\n·\n".join(_diff_text(e.get("old_string"), e.get("new_string"), 200) for e in (inp.get("edits") or [])[:3] if isinstance(e, dict)))
+                elif name == "Write":
+                    body = str(inp.get("content") or "")
+                    item["detail"] = redact(_short(body, 480)) + (f"\n… ({body.count(chr(10)) + 1} lignes)" if len(body) > 480 else "")
+                elif name in ("Bash", "PowerShell"):
+                    item["detail"] = redact(_short(str(inp.get("command") or ""), 500))
+                elif name in ("Grep", "Glob"):
+                    item["detail"] = _short(str(inp.get("pattern") or ""), 200)
+                elif name == "WebFetch":
+                    item["detail"] = _short(str(inp.get("url") or ""), 200)
+                out.append(item)
+    elif typ == "user":
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "tool_result":
+                res = c.get("content")
+                if isinstance(res, list):
+                    res = " ".join(str(x.get("text", "")) for x in res if isinstance(x, dict))
+                out.append({"phase": "end", "id": str(c.get("tool_use_id", "")), "ok": not c.get("is_error"), "out": redact(_short(str(res or ""), 320))})
+    return out
+
+
 _YES = ("oui", "ouais", "ok", "okay", "vas y", "d accord", "autorise", "valide", "go", "yes")
 _NO = ("non", "refuse", "annule", "laisse tomber", "pas question")
 

@@ -21,6 +21,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QObject, QRect, QSize, Qt, QThread, QTimer, QUrl, Signal, Slot
 
+from . import design
+
 instance = None          # le navigateur de la fenêtre (créé par la fenêtre web) ; les outils d'Aurélie s'en servent
 
 VIEW_W, VIEW_H = 1280, 800
@@ -62,6 +64,7 @@ def _remember(row: dict, keep: int = 300) -> None:
     for old in rows[:-keep]:
         try:
             Path(old.get("file", "")).unlink(missing_ok=True)
+            audit_path(old.get("file", "")).unlink(missing_ok=True)
         except OSError:
             pass
     try:
@@ -70,9 +73,27 @@ def _remember(row: dict, keep: int = 300) -> None:
         pass
 
 
+def audit_path(png: str) -> Path:
+    """Fichier des mesures prises avec une capture (couleurs, contrastes, polices...)."""
+    return Path(str(png) + ".audit.json")
+
+
+def load_audit(png: str) -> dict:
+    try:
+        return json.loads(audit_path(png).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def purge_captures(days: int = 14) -> int:
-    """Supprime les captures de plus de `days` jours. Renvoie le nombre de fichiers retirés."""
+    """Supprime les captures de plus de `days` jours (et leurs mesures). Renvoie le nombre de captures retirées."""
     limit, n = time.time() - days * 86400, 0
+    for f in captures_dir().glob("cap-*.png.audit.json"):
+        try:
+            if f.stat().st_mtime < limit:
+                f.unlink()
+        except OSError:
+            pass
     for f in captures_dir().glob("cap-*.png"):
         try:
             if f.stat().st_mtime < limit:
@@ -226,14 +247,15 @@ class LiveBrowser(QObject):
                        "title": self._page.title(), "w": pix.width(), "h": pix.height()})
 
     # ------------------------------------------------------------------ actions (appelables depuis un fil de travail)
-    def open(self, url: str, timeout: float = 30.0) -> dict:
-        """Ouvre une page. -> {ok, url, title, ms, errors}"""
+    def open(self, url: str, timeout: float = 30.0, say=None) -> dict:
+        """Ouvre une page. -> {ok, url, title, ms, errors}. `say` = phrase du fil d'activité ("" = aucune)."""
         try:
             url = check_url(url)
         except ValueError as e:
             return {"ok": False, "error": str(e)}
         with self._lock:
-            self._say(f"J'ouvre {url[:90]}")
+            if say != "":
+                self._say(say or f"J'ouvre {url[:90]}")
 
             def start(done) -> None:
                 self._ensure()
@@ -323,6 +345,7 @@ class LiveBrowser(QObject):
                     return
                 w = max(320, min(int(width or VIEW_W), 2400))
                 self.keep_live(12)
+                audit: dict = {}
 
                 def shoot(h: int, rect=None) -> None:
                     self._view.resize(w, h)
@@ -342,12 +365,18 @@ class LiveBrowser(QObject):
                         if not pix.save(str(name), "PNG"):
                             done({"ok": False, "error": "impossible d'enregistrer la capture"})
                             return
-                        res = {"ok": True, "file": str(name), "w": pix.width(), "h": pix.height(), "url": self._page.url().toString(), "title": self._page.title()}
+                        res = {"ok": True, "file": str(name), "w": pix.width(), "h": pix.height(), "url": self._page.url().toString(), "title": self._page.title(), "audit": audit}
+                        if audit:
+                            try:
+                                audit_path(str(name)).write_text(json.dumps(audit, ensure_ascii=False), encoding="utf-8")
+                            except OSError:
+                                pass
                         self._finish_capture(res, caption, who, announce)
                         done(res)
                     QTimer.singleShot(450, snap)           # le temps que la page se redessine à la nouvelle taille
 
-                if selector:
+                def proceed() -> None:
+                  if selector:
                     sel = json.dumps(selector)
                     self._view.resize(w, VIEW_H)
 
@@ -362,12 +391,33 @@ class LiveBrowser(QObject):
                         shoot(max(VIEW_H, min(int(r["h"]) + 40, MAX_FULL_H)), (r["x"], r["y"], r["w"], r["h"]))
                     self._js("""(() => { const e = document.querySelector(%s); if (!e) return 'null'; e.scrollIntoView({block: 'start'});
                       const r = e.getBoundingClientRect(); return JSON.stringify({x: Math.max(0, r.left), y: Math.max(0, r.top), w: Math.min(r.width, innerWidth), h: Math.min(r.height, %d)}); })()""" % (sel, MAX_FULL_H), got)
-                elif full:
+                  elif full:
                     self._view.resize(w, VIEW_H)
                     self._js("Math.min(document.documentElement.scrollHeight, %d)" % MAX_FULL_H, lambda h: shoot(max(VIEW_H, int(h or VIEW_H))), 250)
-                else:
+                  else:
                     shoot(VIEW_H)
+
+                def measure() -> None:
+                    """Les MESURES exactes de la page (couleurs, contrastes, polices, chevauchements...) à la largeur de la capture."""
+                    self._view.resize(w, VIEW_H)
+
+                    def run_audit() -> None:
+                        self._js(design.AUDIT_JS, lambda raw: (audit.update(design.parse(raw)), proceed()))
+                    QTimer.singleShot(400 if w != VIEW_W else 0, run_audit)
+                measure()
             return self._run(start, 30)
+
+    def audit(self) -> dict:
+        """Les mesures exactes de la page ouverte, sans capture. -> {ok, audit}"""
+        with self._lock:
+            self._say("Je mesure les couleurs, contrastes et polices de la page")
+
+            def start(done) -> None:
+                if self._page is None:
+                    done({"ok": False, "error": "aucune page ouverte"})
+                    return
+                self._js(design.AUDIT_JS, lambda raw: done({"ok": True, "audit": design.parse(raw), "url": self._page.url().toString()}))
+            return self._run(start, 20)
 
     def screen(self, caption: str = "Écran du PC", who: str = "local") -> dict:
         """Capture de tout l'écran du PC (écran principal)."""

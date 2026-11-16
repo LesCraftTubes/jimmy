@@ -57,7 +57,7 @@ def local_reply(text, handoff="", voice_on=True, name="Aurélie", voice="Éloïs
     sp = SimpleNamespace(voice_override=None, speak=lambda t: log.spoken.append(t))
     chat = SimpleNamespace(next_label=None, begin_live=lambda: setattr(log, "live", log.live + 1))
     me = SimpleNamespace(
-        thinking=True, _local_color=lambda: "#4ade80", _announce_handoff=lambda *_a: None, _set_actor=lambda *_a: None, _local_reason="", _local_forced=False, _last_reply="", _force_claude=False, _local_ctx=[], _local_last_q="q", _relay_msg="",
+        thinking=True, _keep=lambda *a, **k: None, _keep_local=lambda *a, **k: None, _local_color=lambda: "#4ade80", _announce_handoff=lambda *_a: None, _set_actor=lambda *_a: None, _local_reason="", _local_forced=False, _last_reply="", _force_claude=False, _local_ctx=[], _local_last_q="q", _relay_msg="",
         _remote_turn=False, _live_text=None, busy=False, speaking=False, speaker=sp, chat=chat, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
         btn_voice=SimpleNamespace(isChecked=lambda: voice_on), listener=SimpleNamespace(pause=lambda: None),
         cfg=SimpleNamespace(get=lambda k, d=None: {"local_voice": voice, "local_name": name}.get(k, d)),
