@@ -262,7 +262,12 @@ def ungrounded(reply: str, read_text: str) -> list:
     names = [re.sub(r"\s*\(.*?\)\s*", " ", n).strip() for n in re.findall(r"\*\*([^*\n]{3,60})\*\*", reply or "")]
     names = [n for n in names if n and not re.match(r"(rang|niveau|note|attention|remarque|total|r[ée]sum[ée])\b", n, re.I) and len(_norm(n)) >= 4]
     base = _norm(read_text)
-    return [n for n in names if _norm(n) not in base]
+    bad = [n for n in names if _norm(n) not in base]
+    # la catégorie entre parenthèses (« (bague) », « (épée) ») doit aussi venir des pages : « Maître de la Vitesse (épée) » est une invention
+    for n, cat in re.findall(r"[*][*]([^*]{3,60})[*][*]\s*[(]([^)]{3,30})[)]", reply or ""):
+        if n.strip() not in bad and _norm(cat) and _norm(cat) not in base:
+            bad.append(n.strip())
+    return bad
 
 
 GROUND_MSG = ("ATTENTION : ta réponse contient des noms qui ne figurent PAS dans les textes lus par tes outils : {bad}. Ce sont des inventions. "
@@ -444,8 +449,13 @@ class LocalAgent:
                 except Exception:  # noqa: BLE001
                     pass
                 if ungrounded(reply, ctx.notes.get("tool_text", "")):
-                    reply = ("Je n'ai pas trouvé de façon sûre ce que tu cherches dans les pages que j'ai lues, et je préfère ne rien inventer. "
-                             "Pages lues : " + ", ".join(re.findall(r"\[Page (\S+?)\]", ctx.notes.get("tool_text", ""))[:6]))
+                    from . import web as _web
+                    n_want = next((int(x) for x in re.findall(r"\b(\d{1,2})\b", user_text) if 1 <= int(x) <= 20), 5)
+                    if _web.last_ranked:       # réponse de secours composée par le CODE : noms, rangs et effets recopiés tels quels
+                        reply = "Voici les plus puissants que j'ai trouvés sur ton site (rangs les plus hauts) :" + "\n" + "\n".join(
+                            f"{k}. **{n}** (rang {r}) : {e}" for k, (n, r, e) in enumerate(_web.last_ranked[:n_want], 1))
+                    else:
+                        reply = "Je n'ai pas trouvé de façon sûre ce que tu cherches dans les pages que j'ai lues, et je préfère ne rien inventer."
         reply = re.sub(r"^\s*(\[(?:Jimmy|Claude|Aurélie)[^\]]*\]\s*)+", "", reply or "").strip() or "(pas de réponse)"
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}]
         self.last_journal = list(ctx.journal)

@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 2.5.6
+- **« Les plus puissants » : Aurélie choisit parmi les rangs les plus hauts.** Sur une page qui classe des éléments par rang (S+, S, A…), le code en extrait la liste courte des meilleurs et la donne à Aurélie, qui ne se perd plus dans le tableau complet. Si son petit modèle invente encore un nom, la réponse est composée directement par le code avec les noms, rangs et effets recopiés tels quels.
+- Vérifié en vrai sur le wiki : elle parcourt le site toute seule, sans passer la main, et rend les 5 reliques de rang S+ avec leurs vrais effets.
+
 ## 2.5.5
 - **Aurélie n'invente plus de noms.** Avant, elle pouvait répondre sans rien lire et citer des objets qui n'existent pas. Maintenant, tout nom qu'elle met en gras doit se trouver dans les pages qu'elle a vraiment lues. Sinon elle lit le site, refait sa réponse avec ce qu'elle a trouvé, et si ça ne colle toujours pas, elle dit simplement qu'elle ne l'a pas trouvé.
 - **« Va sur mon site, dans la doc... » déclenche bien la recherche** (la formulation « aller sur » bloquait l'exploration, d'où les réponses au hasard).

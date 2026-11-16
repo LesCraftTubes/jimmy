@@ -173,11 +173,49 @@ def _text(raw: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+last_ranked = []      # [(nom, rang, effet)] des éléments de rang le plus haut trouvés (demandes « les plus puissants »)
 last_full = ""        # texte COMPLET des pages lues par le dernier crawl (sert à vérifier que la réponse n'invente rien)
 
 _STOP = set("""dans avec pour cette votre notre leurs elles vraiment potentiellement genre quand alors aussi comme faire elle cherche chercher trouve trouver
 regarde regarder voir site page pages mettre mets veux voudrais aimerais peux pouvoir moyen donne donner liste meilleurs meilleur meilleure puissant puissants
 puissante vraiment sentir tout tous toutes fait faut plus moins entre parmi leur ceux celles sont sera serait etre avoir encore deja jamais toujours""".split())
+
+
+_RANKS = {"S+": 0, "S": 1, "A": 2}
+_CONN = {"du", "de", "la", "le", "les", "des", "l", "d", "au", "aux", "et", "en"}
+_WANT_BEST = re.compile(r"(puissan|meilleur|plus fort|top ?\d|best|l[ée]gendaire|ultime)", re.I)
+
+
+def ranked_rows(txt: str, limit: int = 14) -> list:
+    """Lignes de tableau « Nom RANG effet... » (rangs S+, S, A) d'une page : [(nom, rang, effet)], les plus hauts d'abord."""
+    toks = txt.split()
+    rows, seen = [], set()
+    for i, t in enumerate(toks):
+        if t not in _RANKS or i == 0 or i + 1 >= len(toks) or not toks[i + 1][:1].isupper():
+            continue
+        name = []
+        for p in reversed(toks[max(0, i - 7):i]):
+            core = p.strip("'" + chr(8217))
+            if core[:1].isupper() or core.lower() in _CONN or core.lower().rstrip("'" + chr(8217)) in _CONN:
+                name.append(p)
+            else:
+                break
+        while name and name[-1].lower() in _CONN:      # un nom ne commence pas par « du »
+            name.pop()
+        name = " ".join(reversed(name)).strip()
+        if len(name) < 5 or name in seen:
+            continue
+        eff = toks[i + 1:i + 14]
+        for k in range(2, len(eff)):
+            if eff[k] == eff[0]:                  # le même effet répété = la colonne « 5 étoiles » : on s'arrête
+                eff = eff[:k]
+                break
+        while eff and eff[-1] in ("·", "%"):
+            eff.pop()
+        seen.add(name)
+        rows.append((name, t, " ".join(eff)[:110]))
+    rows.sort(key=lambda r: _RANKS[r[1]])
+    return rows[:limit]
 
 
 def keywords_of(text: str) -> list:
@@ -210,8 +248,9 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
     if words:
         max_pages = max(max_pages, 20)
     stems = [w[:5] for w in words]
-    global last_full
+    global last_full, last_ranked
     last_full = ""
+    last_ranked = []
     queue, seen, pages = [start], {start}, []
     while queue and len(pages) < max_pages:
         url = queue.pop(0)
@@ -223,6 +262,9 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         txt = _text(raw)
         title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", raw) or [None, url])[1]
         last_full += "\n" + txt
+        if _WANT_BEST.search(keywords or ""):
+            last_ranked = (last_ranked + [r for r in ranked_rows(txt) if r[0] not in [x[0] for x in last_ranked]])
+            last_ranked.sort(key=lambda r: _RANKS[r[1]])
         low = txt.lower()
         score = sum(low.count(w) for w in words)
         pages.append((score, url, (_clean(title)[:80], txt)))        # le texte est découpé à la fin, quand on sait quelle page est la plus pertinente
@@ -260,4 +302,6 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         else:
             snip = txt[:per_page]
         parts.append(f"[Page {url}]\n{title}\n{snip}")
+    if last_ranked:
+        parts.insert(0, "[ÉLÉMENTS DE RANG LE PLUS HAUT trouvés (S+ d'abord) : pour « les plus puissants », choisis UNIQUEMENT parmi eux]\n" + "\n".join(f"- {n} (rang {r}) : {e}" for n, r, e in last_ranked))
     return "\n\n".join(parts) + f"\n\n({total} pages lues, {len(seen)} adresses repérées sur le site)"
