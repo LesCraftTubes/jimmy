@@ -22,11 +22,13 @@ if ($Notes) {
     if (-not (Test-Path $Notes)) { throw "Fichier de notes introuvable : $Notes" }
     Write-Host "Attente de la release v$Version (la construction prend environ 4 minutes)..."
     $ok = $false
+    $ErrorActionPreference = "Continue"      # « release not found » pendant la construction n'est pas une erreur
     for ($i = 0; $i -lt 40; $i++) {
-        gh release view "v$Version" --json assets --jq ".assets | length" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { $n = [int](gh release view "v$Version" --json assets --jq ".assets | length"); if ($n -ge 1) { $ok = $true; break } }
+        $n = gh release view "v$Version" --json assets --jq ".assets | length" 2>$null
+        if ($LASTEXITCODE -eq 0 -and [int]$n -ge 1) { $ok = $true; break }
         Start-Sleep -Seconds 15
     }
+    $ErrorActionPreference = "Stop"
     if (-not $ok) { throw "La release v$Version n'a pas ses fichiers : vérifie l'onglet Actions, puis relance gh release edit à la main." }
     gh release edit "v$Version" --title "Jimmy $Version" --notes-file $Notes
     foreach ($t in (gh release list --json tagName --jq ".[].tagName")) { if ($t -ne "v$Version") { gh release delete $t --cleanup-tag --yes } }
