@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 2.5.5
+- **Aurélie n'invente plus de noms.** Avant, elle pouvait répondre sans rien lire et citer des objets qui n'existent pas. Maintenant, tout nom qu'elle met en gras doit se trouver dans les pages qu'elle a vraiment lues. Sinon elle lit le site, refait sa réponse avec ce qu'elle a trouvé, et si ça ne colle toujours pas, elle dit simplement qu'elle ne l'a pas trouvé.
+- **« Va sur mon site, dans la doc... » déclenche bien la recherche** (la formulation « aller sur » bloquait l'exploration, d'où les réponses au hasard).
+- **Elle lit la bonne page en grand.** Parmi les pages parcourues, la plus pertinente est donnée presque en entier au modèle (au lieu de courts extraits), les autres en bref.
+
 ## 2.5.4
 - **Le navigateur d'Aurélie ne se trompe plus de site.** Quand tu parles de ton site avec une faute dans le nom, elle ouvrait l'adresse mal écrite, qui existe vraiment et appartient à quelqu'un d'autre. Ouvrir une page, la capturer et juger un rendu corrigent maintenant le nom (d'après les réglages `site_url` et `site_alias`). Les autres adresses, fichiers locaux et `localhost` restent intacts.
 

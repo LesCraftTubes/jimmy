@@ -26,6 +26,9 @@ check("vraie réponse : pas de relais", not agent.is_failure("Voici les 20 reliq
 check("mots du sujet extraits (sans mots courants)", web.keywords_of("il y a moyen taille sur mon site, sur les reliques, 20 les meilleurs") == ["taille", "reliques"])
 web.configure(Cfg(site_url="https://exemple.org", site_doc="/doc/", site_alias=r"exempl?e?\.org"))
 check("navigateur : faute corrigée, autres adresses intactes", web.fix_alias("exempl.org/x") == "https://exemple.org/x" and web.fix_alias("C:/a/page.html") == "C:/a/page.html" and web.fix_alias("localhost:8000") == "localhost:8000")
+fake = "Le Sceau du Tyran donne +3 dégâts. Le Croc du Vampire soigne. Cape du Phénix : vie."
+check("contrôle anti-invention : vrais noms acceptés, faux refusés", agent.ungrounded("**Sceau du Tyran** et **Croc du Vampire**", fake) == [] and agent.ungrounded("**Sceau du Tyran** et **Épée du Destin**", fake) == ["Épée du Destin"])
+check("« aller sur mon site » déclenche l'exploration", agent.prefetch("tu peux aller sur mon site et chercher les reliques")[0][0] == "explorer_site")
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

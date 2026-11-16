@@ -173,6 +173,8 @@ def _text(raw: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+last_full = ""        # texte COMPLET des pages lues par le dernier crawl (sert à vérifier que la réponse n'invente rien)
+
 _STOP = set("""dans avec pour cette votre notre leurs elles vraiment potentiellement genre quand alors aussi comme faire elle cherche chercher trouve trouver
 regarde regarder voir site page pages mettre mets veux voudrais aimerais peux pouvoir moyen donne donner liste meilleurs meilleur meilleure puissant puissants
 puissante vraiment sentir tout tous toutes fait faut plus moins entre parmi leur ceux celles sont sera serait etre avoir encore deja jamais toujours""".split())
@@ -208,24 +210,22 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
     if words:
         max_pages = max(max_pages, 20)
     stems = [w[:5] for w in words]
+    global last_full
+    last_full = ""
     queue, seen, pages = [start], {start}, []
     while queue and len(pages) < max_pages:
         url = queue.pop(0)
         try:
             raw = _get(url, timeout=15)
         except Exception as e:  # noqa: BLE001
-            pages.append((0, url, f"(illisible : {e})"))
+            pages.append((0, url, f"(illisible : {e})"))        # chaîne = page illisible
             continue
         txt = _text(raw)
         title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", raw) or [None, url])[1]
+        last_full += "\n" + txt
         low = txt.lower()
         score = sum(low.count(w) for w in words)
-        if words and score:
-            hits = [m.start() for w in words[:6] for m in re.finditer(re.escape(w), low)][:4]
-            snip = " … ".join(txt[max(0, h - 250):h + 450] for h in sorted(set(hits))[:2])
-        else:
-            snip = txt[:per_page]
-        pages.append((score, url, f"{_clean(title)[:80]}\n{snip[:per_page]}"))
+        pages.append((score, url, (_clean(title)[:80], txt)))        # le texte est découpé à la fin, quand on sait quelle page est la plus pertinente
         if on_page:
             try:
                 on_page(url, _clean(title)[:70], len(pages), max_pages)
@@ -241,4 +241,23 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         seen.update(new)
         queue = sorted(queue + new, key=prio)        # les liens qui parlent du sujet passent devant
     pages.sort(key=lambda p: -p[0])
-    return "\n\n".join(f"[Page {u}]\n{t}" for _s, u, t in pages) + f"\n\n({len(pages)} pages lues, {len(seen)} adresses repérées sur le site)"
+    total = len(pages)
+    if words:
+        pages = [p for p in pages if p[0]][:4] or pages[:3]      # seulement les pages qui parlent du sujet
+    parts = []
+    for rank, (score, url, body) in enumerate(pages):
+        if isinstance(body, str):                                 # page illisible
+            parts.append(f"[Page {url}]\n{body}")
+            continue
+        title, txt = body
+        low = txt.lower()
+        if words and score:
+            # fenêtre la plus riche en mots du sujet : grande pour la meilleure page, courte pour les autres
+            size = 9000 if rank == 0 else 700
+            pos = [m.start() for w in words[:6] for m in re.finditer(re.escape(w), low)]
+            start_at = max(range(0, max(1, len(txt) - size + 1), 300), key=lambda s: sum(1 for p in pos if s <= p < s + size), default=0) if len(txt) > size else 0
+            snip = txt[start_at:start_at + size]
+        else:
+            snip = txt[:per_page]
+        parts.append(f"[Page {url}]\n{title}\n{snip}")
+    return "\n\n".join(parts) + f"\n\n({total} pages lues, {len(seen)} adresses repérées sur le site)"

@@ -155,7 +155,7 @@ def prefetch(user_text: str) -> list:
     if targets and _CHECK.search(user_text) and not _BAD_SHOT.search(user_text):
         return [("ouvrir_page", {"adresse": targets[0]}), ("rapport_page", {})]
     dom = _DOMAIN.search(user_text)
-    if (_SITE_ASK.search(user_text) or (dom and not targets)) and not _BAD_SHOT.search(user_text) and not _OPEN.search(user_text):
+    if (_SITE_ASK.search(user_text) or (dom and not targets and not _OPEN.search(user_text))) and not _BAD_SHOT.search(user_text):
         # n'importe quel site : adresse donnée (avec ou sans https), sinon le site de l'utilisateur
         return [("explorer_site", {"adresse": (targets[0] if targets else dom.group(1) if dom else ""), "mots": re.sub(r"\s+", " ", user_text)[:200]})]
     for u in _URL.findall(user_text)[:2]:
@@ -189,7 +189,7 @@ _REFUS = re.compile(
     r"\bi (can't|cannot|can not|am unable|'m unable)|as an ai)", re.I)
 # Elle PROMET de passer la main (« je vais demander à Claude », « j'ai transmis à Jimmy ») sans l'avoir fait : le code le fait pour de vrai
 _PROMESSE = re.compile(r"(demander|demande|transmis|transmettre|transmets|passe[rz]?|passerai|confie[rz]?|renvoie|laisse)[^.!?]{0,40}(à|a|au|aux)\s+(claude|jimmy)|"
-                       r"(claude|jimmy)\s+(va|pourra|peut|reprend|reprendra|doit)", re.I)
+                       r"(claude|jimmy)\s+(va|pourra|peut|reprend|reprendra|doit)\b", re.I)
 _VIDE = ("", "(pas de réponse)", "Je n'ai pas réussi à conclure en quelques étapes.")
 
 
@@ -250,6 +250,23 @@ def is_failure(reply: str) -> bool:
     if r in _VIDE:
         return True
     return len(r) < 900 and bool(_REFUS.search(r[:400]) or _PROMESSE.search(r[:400]))
+
+
+def _norm(s: str) -> str:
+    import unicodedata
+    return re.sub(r"[^a-z0-9]+", " ", unicodedata.normalize("NFD", (s or "").lower()).encode("ascii", "ignore").decode()).strip()
+
+
+def ungrounded(reply: str, read_text: str) -> list:
+    """Noms mis en gras dans la réponse qui n'apparaissent PAS dans ce que les outils ont lu (= inventés par le petit modèle)."""
+    names = [re.sub(r"\s*\(.*?\)\s*", " ", n).strip() for n in re.findall(r"\*\*([^*\n]{3,60})\*\*", reply or "")]
+    names = [n for n in names if n and not re.match(r"(rang|niveau|note|attention|remarque|total|r[ée]sum[ée])\b", n, re.I) and len(_norm(n)) >= 4]
+    base = _norm(read_text)
+    return [n for n in names if _norm(n) not in base]
+
+
+GROUND_MSG = ("ATTENTION : ta réponse contient des noms qui ne figurent PAS dans les textes lus par tes outils : {bad}. Ce sont des inventions. "
+              "Refais ta réponse en utilisant UNIQUEMENT les noms, rangs et effets écrits mot pour mot dans ces textes ; si l'information n'y est pas, dis-le simplement.")
 
 
 class LocalAgent:
@@ -410,6 +427,25 @@ class LocalAgent:
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."
+        if reply and (_SITE_ASK.search(user_text) or _WEB.search(user_text) or _DOMAIN.search(user_text)) and not _BAD_SHOT.search(user_text):
+            # Contrôle anti-invention : chaque nom cité doit venir d'une page réellement lue ; sinon elle lit le site puis refait sa réponse.
+            bad = ungrounded(reply, ctx.notes.get("tool_text", ""))
+            if len(bad) >= 2 or (bad and not ctx.notes.get("tool_text")):
+                if not ctx.notes.get("tool_text") and "explorer_site" in self.registry.tools:
+                    args = {"adresse": (_DOMAIN.search(user_text).group(1) if _DOMAIN.search(user_text) else ""), "mots": re.sub(r"\s+", " ", user_text)[:200]}
+                    messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": "ground_0", "type": "function",
+                                     "function": {"name": "explorer_site", "arguments": json.dumps(args, ensure_ascii=False)}}]})
+                    messages.append({"role": "tool", "tool_call_id": "ground_0", "name": "explorer_site", "content": self.registry.call("explorer_site", args, ctx)})
+                    bad = ungrounded(reply, ctx.notes.get("tool_text", "")) or bad
+                ctx.step("Contrôle", "noms non trouvés dans les pages lues : " + ", ".join(bad[:4]))
+                messages += [{"role": "assistant", "content": reply}, {"role": "user", "content": GROUND_MSG.format(bad=", ".join(bad[:6]))}]
+                try:
+                    reply = (self.engine.chat(messages, tools=None).get("content") or "").strip() or reply
+                except Exception:  # noqa: BLE001
+                    pass
+                if ungrounded(reply, ctx.notes.get("tool_text", "")):
+                    reply = ("Je n'ai pas trouvé de façon sûre ce que tu cherches dans les pages que j'ai lues, et je préfère ne rien inventer. "
+                             "Pages lues : " + ", ".join(re.findall(r"\[Page (\S+?)\]", ctx.notes.get("tool_text", ""))[:6]))
         reply = re.sub(r"^\s*(\[(?:Jimmy|Claude|Aurélie)[^\]]*\]\s*)+", "", reply or "").strip() or "(pas de réponse)"
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}]
         self.last_journal = list(ctx.journal)
