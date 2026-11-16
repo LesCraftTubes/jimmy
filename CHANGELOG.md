@@ -1,5 +1,8 @@
 ﻿# Historique des versions
 
+## 2.5.8
+- **Les messages internes de passage de relais ne s'affichent plus quand tu rouvres une discussion.** Le long texte envoyé à Claude (« Aurélie (l'IA locale) te dit… Demande de l'utilisateur… Résumé… DÉJÀ FAIT… ») réapparaissait en gros comme si tu l'avais écrit. Il reste caché : tu ne vois que tes vrais messages, le dialogue Aurélie → Jimmy et les réponses.
+
 ## 2.5.7
 - **Fini le « je ne peux pas parcourir de sites » d'Aurélie.** Quand elle s'excusait à tort de ne pas pouvoir lire un site (alors qu'elle le peut), Jimmy lit maintenant le site à sa place dans la foulée et elle répond avec les pages lues, sans s'excuser. Ça réglait aussi les cas où elle répondait bien une fois, puis refusait au tour suivant.
 

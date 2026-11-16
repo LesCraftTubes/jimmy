@@ -44,6 +44,8 @@ def _user_text(content, raw: bool = False) -> str:
         # ce que Jimmy ajoute devant ta demande pour Claude (ce qu'Aurélie a répondu entre-temps, mots de routage) n'est pas ta demande
         text = re.sub(r"(?s)^\[Contexte : l'IA locale de Jimmy a déjà répondu entre-temps :.*?\]\s*", "", text)
         text = re.sub(r"^@(?:claude|local|ia)\b[ :,-]*", "", text, flags=re.I).strip()
+        if re.match(r"(?s)^[^\n]{0,60}\(l'IA locale\) te dit : «", text) or text.startswith("Demande de l'utilisateur :"):
+            return ""        # message INTERNE de passage de relais (Aurélie -> Jimmy) : tu ne l'as pas écrit, il ne s'affiche jamais (ta vraie demande et le dialogue sont déjà dans la discussion)
     if text.startswith(RESUME_MARK) and not raw:
         return "↺ Suite de la discussion."
     return "" if text.startswith(_SKIP_PREFIXES) else text
