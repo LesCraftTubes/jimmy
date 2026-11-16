@@ -10,7 +10,7 @@ import re
 
 from . import packs as packs_mod
 from .engine import Engine, LocalError
-from .tools import Context, Registry, base_registry
+from .tools import Context, Registry, base_registry, journal_text
 
 MAX_STEPS = 6
 HISTORY_TURNS = 8     # derniers échanges gardés en mémoire de conversation
@@ -206,5 +206,5 @@ class LocalAgent:
             # Le petit modèle a refusé au lieu d'appeler l'outil de relais : le CODE passe la main, avec la demande d'origine.
             self.last_reason = "refus"
             ctx.handoff = (f"Demande de l'utilisateur : {user_text}\n\nL'IA locale n'a pas pu la traiter "
-                           f"(sa réponse : « {reply[:300]} »). Fais-la toi-même.")
+                           f"(sa réponse : « {reply[:300]} »). Fais-la toi-même." + journal_text(ctx))
         return reply, ctx.handoff

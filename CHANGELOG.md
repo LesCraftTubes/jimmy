@@ -1,5 +1,13 @@
 ﻿# Historique des versions
 
+## 2.0.4
+- **L'IA locale peut vraiment chercher sur Internet** : sa recherche ne renvoyait rien (DuckDuckGo bloque les programmes, Bing leur sert des résultats faux). Elle passe maintenant par le navigateur intégré de Jimmy, **invisible** (aucun onglet ne s'ouvre dans ton navigateur, rien n'est gardé), avec de vrais résultats Bing / DuckDuckGo, leurs extraits de texte et le début de la page. L'API de Wikipédia et DuckDuckGo en direct servent de secours. Testé pour de vrai : « hauteur de la tour Eiffel » donne 330 m, avec la source.
+- **Relais sans refaire le travail** : l'IA locale tient un journal de ce qu'elle a déjà fait (recherches, fichiers lus...) et le transmet à Claude avec la consigne de reprendre là où elle s'est arrêtée, sans refaire les mêmes recherches. Dans la discussion, la ligne verte de passage dit combien d'étapes sont transmises, et la réponse de Claude est étiquetée « CLAUDE · RELAIS » en violet : on voit qui parle.
+- **Bouton « Vérifier les mises à jour »** dans la barre latérale : il cherche une nouvelle version et, s'il y en a une, télécharge (avec le pourcentage) et lance l'installation tout de suite ; Jimmy se ferme puis se rouvre tout seul.
+- **Retour du style cyberpunk** (celui de l'ancien Jimmy) : hexagone « J » à effet glitch cyan / blanc / magenta, titre néon, lignes de balayage, anneau hexagonal autour de l'orbe, boutons taillés et lueurs néon. Il est actif par défaut ; le bouton hexagone du haut de la barre latérale revient au style sobre, et inversement.
+- **Glisser-déposer fiabilisé** : le fichier déposé est maintenant attrapé au niveau de la fenêtre, avec son vrai chemin, quelle que soit sa taille ; un voile « Dépose les fichiers ici » s'affiche pendant le survol.
+- Nouveaux tests : `test_websearch.py` (recherche réelle, demande Internet), `test_update_button.py`, `test_drop.py`.
+
 ## 2.0.3
 - **Pièces jointes** : bouton trombone et glisser-déposer dans la zone de texte. Les fichiers (ou dossiers) sont copiés, quelle que soit leur taille, dans le dossier des pièces jointes de Jimmy (bouton « Pièces jointes » de la barre latérale pour l'ouvrir). Ils s'affichent en puces sous le message, et leur chemin reste écrit dans la discussion ; une note en mémoire permet aussi de les retrouver plus tard (« où est le fichier que je t'ai envoyé ? »). Les originaux ne sont jamais touchés ; deux fichiers de même nom ne s'écrasent pas.
 - **Haiku pour les tâches simples** : Claude délègue maintenant la recherche de fichiers, l'exploration du code, la lecture et les tâches simples à un sous-agent Haiku, et garde son modèle pour raisonner et modifier. Ça économise le quota. Réglage `haiku_helper` (activé par défaut), et la règle est aussi notée en mémoire.

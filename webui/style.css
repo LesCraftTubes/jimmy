@@ -197,3 +197,52 @@ button.ghost:hover { background: var(--elev); color: var(--text); }
 body.psy #app { animation: psy 2.4s steps(2) infinite; }
 @keyframes psy { 0%, 94% { filter: none; } 96% { filter: hue-rotate(40deg) saturate(1.6); transform: translateX(1px); } 98% { filter: hue-rotate(-30deg); transform: translateX(-1px); } }
 @media (max-width: 900px) { #app { grid-template-columns: 1fr; } #side { display: none; } .select select { max-width: 120px; } }
+
+/* ------------------------------------------------------------ mise à jour, logo */
+.logo .l-cyber { display: none; }
+button#btnUpdate[data-state="downloading"], button#btnUpdate[data-state="installing"], button#btnUpdate[data-state="checking"] { color: var(--accent); }
+button#btnUpdate:disabled { cursor: progress; opacity: .9; }
+button#btnUpdate[data-state="downloading"] svg, button#btnUpdate[data-state="checking"] svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+:root { --neon-a: var(--accent); --neon-b: #ff2bd6; }
+
+/* ------------------------------------------------------------ style CYBERPUNK (celui de l'ancien Jimmy) : hexagone, néons, balayage */
+[data-look="cyber"] {
+  --bg: #07040f; --surface: #0d0818; --elev: #150d26; --elev2: #1e1235; --border: #2a1646; --border2: #43206e;
+  --text: #f1ecff; --muted: #a79bd0; --faint: #6f5f9c; --local: #00f0ff; --radius: 4px;
+  --shadow: 0 0 0 1px color-mix(in srgb, var(--neon-b) 18%, transparent), 0 10px 30px rgba(0,0,0,.55);
+  --font: "Bahnschrift","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+}
+[data-look="cyber"] .logo .l-sobre { display: none; }
+[data-look="cyber"] .logo .l-cyber { display: block; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--neon-b) 70%, transparent)); }
+[data-look="cyber"] #btnTheme { display: none; }
+[data-look="cyber"] body::after { content: ""; position: fixed; inset: 0; z-index: 200; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,.028) 0 1px, transparent 1px 3px),
+              radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.35) 100%); }
+[data-look="cyber"] #app { background: radial-gradient(1200px 600px at 85% -10%, color-mix(in srgb, var(--neon-b) 9%, transparent), transparent 60%),
+                                       radial-gradient(900px 500px at -10% 110%, color-mix(in srgb, var(--neon-a) 8%, transparent), transparent 60%), var(--bg); }
+[data-look="cyber"] .brand-text b { font-size: 24px; font-weight: 800; letter-spacing: 4px; text-transform: uppercase;
+  text-shadow: -1.5px 0 var(--neon-a), 1.5px 0 var(--neon-b); animation: glitch 6s infinite steps(1); }
+[data-look="cyber"] .brand-text span { font-family: var(--mono); color: var(--neon-a); font-size: 11px; letter-spacing: 1px; }
+@keyframes glitch { 0%, 92%, 100% { transform: none; } 93% { transform: translate(2px, -1px); } 95% { transform: translate(-3px, 1px); clip-path: inset(30% 0 40% 0); } 97% { transform: translate(1px, 0); } }
+[data-look="cyber"] #side { border-right: 1px solid var(--border2); box-shadow: 1px 0 18px -6px color-mix(in srgb, var(--neon-b) 55%, transparent); }
+[data-look="cyber"] #top { border-image: linear-gradient(90deg, var(--neon-a), var(--neon-b) 55%, transparent) 1; border-bottom-width: 1px; }
+[data-look="cyber"] .section, [data-look="cyber"] .menu-title { font-family: var(--mono); color: var(--neon-a); letter-spacing: 2px; }
+[data-look="cyber"] .section::before { content: "// "; color: var(--neon-b); }
+[data-look="cyber"] button.primary { color: #07040f; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; border-radius: 0;
+  background: linear-gradient(120deg, var(--neon-a), var(--neon-b)); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+[data-look="cyber"] button.primary:hover { filter: brightness(1.15) saturate(1.2); }
+[data-look="cyber"] button.ghost:hover, [data-look="cyber"] .icon-btn:hover { background: color-mix(in srgb, var(--neon-b) 14%, transparent); color: var(--neon-a); }
+[data-look="cyber"] .session { border-radius: 2px; }
+[data-look="cyber"] .session.active { background: color-mix(in srgb, var(--neon-b) 12%, transparent); border-color: var(--border2); }
+[data-look="cyber"] .session.active::before { background: linear-gradient(var(--neon-a), var(--neon-b)); box-shadow: 0 0 10px var(--neon-b); }
+[data-look="cyber"] #composer { border-radius: 4px; border-color: var(--border2); }
+[data-look="cyber"] #composer:focus-within { border-color: var(--neon-b); box-shadow: 0 0 0 1px var(--neon-b), 0 0 22px -4px var(--neon-b), var(--shadow); }
+[data-look="cyber"] .msg.assistant .who b { font-family: var(--mono); letter-spacing: 2px; text-transform: uppercase; }
+[data-look="cyber"] .msg.user .body { border-radius: 4px; border: 1px solid var(--border2); border-left: 3px solid var(--neon-a); background: var(--elev); }
+[data-look="cyber"] .seg, [data-look="cyber"] .select select, [data-look="cyber"] .menu, [data-look="cyber"] .chip, [data-look="cyber"] .localstats, [data-look="cyber"] .steps { border-radius: 3px; }
+[data-look="cyber"] .seg button.on { background: color-mix(in srgb, var(--neon-b) 22%, var(--elev2)); box-shadow: 0 0 12px -2px var(--neon-b); }
+[data-look="cyber"] .status-text b { letter-spacing: 2px; text-transform: uppercase; }
+[data-look="cyber"] .bar i { box-shadow: 0 0 8px currentColor; }
+[data-look="cyber"] ::selection { background: color-mix(in srgb, var(--neon-b) 45%, transparent); }
+@media (prefers-reduced-motion: reduce) { [data-look="cyber"] .brand-text b { animation: none; } }

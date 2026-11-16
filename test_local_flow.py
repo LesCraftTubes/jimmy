@@ -20,7 +20,7 @@ def scenario(route, reason, text, handoff, forced=False):
     log = SimpleNamespace(messages=[], system=[], submitted=[], finished=0, stats=[])
     me = SimpleNamespace(
         thinking=True, _local_reason=reason, _local_forced=forced, _last_reply="x", _force_claude=False,
-        _local_ctx=[], _local_last_q="ma question", _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
+        _local_ctx=[], _local_last_q="ma question", chat=SimpleNamespace(next_label=None), _route=lambda: route, _remote_emit=lambda *_a: None, _HANDOFF_WHY=W.JimmyWindow._HANDOFF_WHY,
     )
     me._bump_local = lambda k: log.stats.append(k)
     me.add_message = lambda role, t: log.messages.append((role, t))
@@ -31,6 +31,7 @@ def scenario(route, reason, text, handoff, forced=False):
         log.submitted.append((t, me._force_claude, echo))
     me.submit = submit
     W.JimmyWindow._on_local_reply(me, text, handoff)
+    log.chat = me.chat
     app.processEvents()
     app.processEvents()
     return log
@@ -43,6 +44,7 @@ l = scenario("auto", "refus", "Je ne peux pas faire ça.", H)
 check("auto/refus : le « je ne peux pas » n'est PAS affiché", l.messages == [])
 check("auto/refus : ligne visible de passage à Claude", len(l.system) == 1 and l.system[0].startswith("↪") and "Claude" in l.system[0])
 check("auto/refus : Claude reçoit la demande d'origine", len(l.submitted) == 1 and "redémarre le serveur" in l.submitted[0][0])
+check("auto/refus : sa réponse sera étiquetée CLAUDE · RELAIS", l.chat.next_label and "CLAUDE" in l.chat.next_label[0])
 check("auto/refus : forcé vers Claude, sans écho", l.submitted and l.submitted[0][1] is True and l.submitted[0][2] is False)
 
 # Auto + moteur coupé

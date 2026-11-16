@@ -139,6 +139,11 @@ function drawOrb(ts) {
   g.addColorStop(0, base + "ff"); g.addColorStop(0.45, base + "55"); g.addColorStop(1, base + "00");
   octx.fillStyle = g; octx.beginPath(); octx.arc(cx, cy, w * (0.36 + pulse), 0, 7); octx.fill();
   octx.fillStyle = base; octx.beginPath(); octx.arc(cx, cy, r * (1 + pulse * 1.6), 0, 7); octx.fill();
+  if (document.documentElement.dataset.look === "cyber") {            /* anneau hexagonal néon, comme l'ancien Jimmy */
+    octx.strokeStyle = base; octx.lineWidth = 2; octx.globalAlpha = 0.6; octx.beginPath();
+    for (let k = 0; k <= 6; k++) { const a = t * 0.35 + k * Math.PI / 3, x = cx + Math.cos(a) * w * 0.45, y = cy + Math.sin(a) * w * 0.45; k ? octx.lineTo(x, y) : octx.moveTo(x, y); }
+    octx.stroke(); octx.globalAlpha = 1;
+  }
   octx.strokeStyle = base; octx.lineWidth = 3; octx.lineCap = "round";
   if (st === "thinking" || st === "loading") {
     for (let i = 0; i < 3; i++) { const a = t * (st === "loading" ? 1.2 : 3.2) + i * 2.09; octx.globalAlpha = 0.9 - i * 0.25; octx.beginPath(); octx.arc(cx, cy, w * 0.36, a, a + 1.1); octx.stroke(); }
@@ -242,6 +247,10 @@ $$("#voiceMenu input[data-k]").forEach(i => i.onchange = () => call("toggle", i.
 const vm = $("#voiceMenu");
 $("#btnVoiceMenu").onclick = e => { e.stopPropagation(); vm.hidden = !vm.hidden; };
 document.addEventListener("click", e => { if (!vm.hidden && !e.target.closest(".menu-wrap")) vm.hidden = true; });
+$("#btnUpdate").onclick = () => call("checkUpdate");
+function setLook(v) { document.documentElement.dataset.look = v; try { localStorage.setItem("jimmy-look", v); } catch (e) {} }
+$("#btnLook").onclick = () => setLook(document.documentElement.dataset.look === "cyber" ? "sobre" : "cyber");
+try { setLook(localStorage.getItem("jimmy-look") || "cyber"); } catch (e) { setLook("cyber"); }
 $("#btnTheme").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = t; try { localStorage.setItem("jimmy-theme", t); } catch (e) {} };
 try { const t = localStorage.getItem("jimmy-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
@@ -249,7 +258,8 @@ try { const t = localStorage.getItem("jimmy-theme"); if (t) document.documentEle
 function fillSelect(sel, items, current) { sel.innerHTML = ""; for (const [label, value] of items) { const o = document.createElement("option"); o.textContent = label; o.value = value; sel.appendChild(o); } sel.value = current; }
 function applyPrefs(p) {
   S.prefs = p; const r = document.documentElement.style;
-  r.setProperty("--accent", p.accent[0]); r.setProperty("--accent2", p.accent[1]); r.setProperty("--chat-size", (p.chat_font || 15) + "px");
+  r.setProperty("--accent", p.accent[0]); r.setProperty("--accent2", p.accent[1]);
+  r.setProperty("--neon-a", p.accent[0]); r.setProperty("--neon-b", p.accent[0].toLowerCase() === "#22d3ee" ? "#ff2bd6" : p.accent[1]); r.setProperty("--chat-size", (p.chat_font || 15) + "px");
   $("#version").textContent = "version " + p.version;
   fillSelect($("#selModel"), p.models, p.model || ""); fillSelect($("#selEffort"), p.efforts, p.effort || "");
   fillSelect($("#selVoice"), p.voices.map(v => [v, v]), p.voice_preset);
@@ -287,6 +297,13 @@ function onEvent(e) {
     case "restart_needed": $("#restartBanner").hidden = false; break;
     case "swap": chat.style.opacity = 0; requestAnimationFrame(() => { chat.style.transition = "opacity .45s"; chat.style.opacity = 1; setTimeout(() => chat.style.transition = "", 500); }); break;
     case "focus": input.focus(); break;
+    case "update": {
+      const b = $("#btnUpdate"), busy = ["checking", "downloading", "installing"].includes(e.state);
+      b.dataset.state = e.state; b.disabled = busy; $("#updText").textContent = e.text;
+      if (!busy) { toast(e.text, e.state === "error"); setTimeout(() => { if (!b.disabled) { $("#updText").textContent = "Vérifier les mises à jour"; b.dataset.state = ""; } }, 7000); }
+      break;
+    }
+    case "dragging": $("#dropHint").hidden = !e.on; break;
     case "attached": S.attached = e.items || []; renderChips(); break;
     case "localstats": { const n = e.local + e.relay + e.direct; $("#localStatsText").textContent = n ? `${e.local} réponses seule \u00b7 ${e.relay} relais \u00b7 ${e.direct} direct à Claude` : "aucune demande pour l'instant"; break; }
     case "toast": toast(e.text, e.err); break;

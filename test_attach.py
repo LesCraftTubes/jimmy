@@ -97,7 +97,10 @@ ok_nav = page.acceptNavigationRequest(QUrl.fromLocalFile(str(drop_file)), None, 
 check("fichier déposé : intercepté, page non quittée", ok_nav is False and got == [os.path.abspath(str(drop_file))])
 own = QUrl.fromLocalFile(os.path.join(WW.web_dir(), "index.html"))
 check("la page de Jimmy elle-même se charge normalement", page.acceptNavigationRequest(own, None, True) is True)
-check("un lien web s'ouvre dans le navigateur, pas dans Jimmy", page.acceptNavigationRequest(QUrl("https://example.com"), None, True) is False)
+opened = []
+WW.QDesktopServices.openUrl = staticmethod(lambda u: opened.append(u.toString()))     # ne JAMAIS ouvrir un vrai navigateur pendant un test
+check("un lien web part vers le navigateur, pas dans Jimmy", page.acceptNavigationRequest(QUrl("https://example.com"), None, True) is False
+      and opened == ["https://example.com"])
 
 print("\nRESULTAT :", "TOUT EST OK" if not fails else f"{len(fails)} ECHEC(S) : {fails}")
 sys.exit(1 if fails else 0)

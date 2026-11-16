@@ -1471,11 +1471,14 @@ class JimmyWindow(QMainWindow):
             self._bump_local("relay")
 
             why = self._HANDOFF_WHY.get(reason, "elle a besoin de Claude")
-            self.add_system(f"↪ L'IA locale passe la main à Claude ({why}).")
+            done = handoff.split("DÉJÀ FAIT", 1)[1].count("\n- ") if "DÉJÀ FAIT" in handoff else 0
+            self.add_system(f"↪ L'IA locale passe la main à Claude ({why})."
+                            + (f" Elle lui transmet ses {done} étape(s) déjà faite(s) : il reprend là où elle s'est arrêtée." if done else ""))
             self._finish()
 
             def go() -> None:
                 self._force_claude = True          # le message suivant part chez Claude quoi que dise le sélecteur
+                self.chat.next_label = ("CLAUDE · RELAIS", "#a78bfa")      # on voit que c'est lui qui parle maintenant
                 self.submit("L'IA locale te transmet cette demande :\n" + handoff, echo=False)
             QTimer.singleShot(0, go)
             return
@@ -1594,6 +1597,7 @@ class JimmyWindow(QMainWindow):
 
     def _on_failure(self, msg: str) -> None:
         self.thinking = False
+        self.chat.next_label = None
         if "too long" in msg.lower() and not self._long_retry and self._last_request and self.bridge.session_id:
             self._long_retry = True
             req = self._last_request

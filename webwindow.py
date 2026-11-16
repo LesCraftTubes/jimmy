@@ -16,12 +16,12 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
 import sessions
 import theme
@@ -100,6 +100,10 @@ class Bridge(QObject):
     @Slot(str)
     def send(self, text: str) -> None:
         self.win.submit(self.win.compose_attachments(text))
+
+    @Slot()
+    def checkUpdate(self) -> None:
+        self.win.check_update_now()
 
     @Slot()
     def pickFiles(self) -> None:
@@ -224,11 +228,56 @@ class _Page(QWebEnginePage):
 
 
 # ------------------------------------------------------------------ adaptateurs des anciens widgets
+class _DropFilter(QObject):
+    """Attrape les fichiers déposés sur la fenêtre AU NIVEAU DE QT : on a toujours le vrai chemin, quelle que soit la taille,
+    sans dépendre de ce que Chromium fait d'un fichier déposé."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.dragging = False
+
+    def _inside(self, obj) -> bool:
+        v = self.win.view
+        return obj is v or (isinstance(obj, QWidget) and v.isAncestorOf(obj))
+
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        if t not in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop, QEvent.Type.DragLeave) or not self._inside(obj):
+            return False
+        if t == QEvent.Type.DragLeave:
+            self._show(False)
+            return False
+        md = ev.mimeData()
+        paths = [u.toLocalFile() for u in md.urls() if u.isLocalFile()] if md and md.hasUrls() else []
+        if not paths:
+            return False
+        if t == QEvent.Type.Drop:
+            self._show(False)
+            self.win.attach_paths(paths)
+        else:
+            self._show(True)
+        ev.acceptProposedAction()
+        return True
+
+    def _show(self, on: bool) -> None:
+        if on != self.dragging:
+            self.dragging = on
+            self.win.jsb.emit({"t": "dragging", "on": on})
+
+
 class _AttachSig(QObject):
     done = Signal(object)
 
 
+class _UpdSig(QObject):
+    state = Signal(str, str, int)      # état, texte à afficher, pourcentage
+    install = Signal(str)              # chemin de l'installateur téléchargé
+
+
 class _Chat:
+    next_label = None            # (étiquette, couleur) pour la prochaine réponse de Claude après un relais de l'IA locale
+
     def __init__(self, emit):
         self.emit = emit
 
@@ -236,6 +285,9 @@ class _Chat:
         self.emit({"t": "msg", "role": "user", "text": text})
 
     def add_assistant(self, text, label="JIMMY", color="#e84df5"):
+        if label == "JIMMY" and self.next_label:
+            label, color = self.next_label
+            self.next_label = None
         self.emit({"t": "msg", "role": "assistant", "text": text, "label": label, "color": color if label != "JIMMY" else ""})
 
     def add_system(self, text):
@@ -251,7 +303,9 @@ class _Chat:
         self.emit({"t": "live_chunk", "text": text, "duration": duration})
 
     def end_live(self, full_text):
-        self.emit({"t": "live_end", "text": full_text, "label": "JIMMY", "color": ""})
+        label, color = self.next_label or ("JIMMY", "")
+        self.next_label = None
+        self.emit({"t": "live_end", "text": full_text, "label": label, "color": color})
 
     def clear(self):
         self.emit({"t": "clear"})
@@ -512,10 +566,19 @@ class WebJimmyWindow(W.JimmyWindow):
         self.input = _Input(em)
         self.route_box = _RouteBox(self)
         self.session_list = _SessionList()
+        self._usig = _UpdSig()
+        self._usig.state.connect(self._on_update_state)
+        self._usig.install.connect(self._run_installer)
+        self._updating = False
         self._attach = []                    # pièces jointes en attente d'envoi
         self._asig = _AttachSig()
         self._asig.done.connect(self._attached)
         self.sweep = self.logo = self.subtitle = self.chat_frame = _Null()
+
+        from brain import web as _web
+        from brain.browser_search import HeadlessSearch
+        self._hsearch = HeadlessSearch()
+        _web.browser_search = self._hsearch.search      # l'IA locale cherche sur Internet par là, sans ouvrir ton navigateur
 
         view = QWebEngineView(self)
         page = _Page(view)
@@ -530,6 +593,15 @@ class WebJimmyWindow(W.JimmyWindow):
         channel.registerObject("bridge", self.jsb)
         page.setWebChannel(channel)
         self.view = view
+        view.setAcceptDrops(True)
+        self._dropfilter = _DropFilter(self)
+
+        def hook_drops(_ok=True) -> None:
+            for w in [view, view.focusProxy(), *view.findChildren(QWidget)]:
+                if w is not None:
+                    w.setAcceptDrops(True)
+                    w.installEventFilter(self._dropfilter)
+        view.loadFinished.connect(lambda ok: (hook_drops(), QTimer.singleShot(1500, hook_drops)))
         self.setCentralWidget(view)
         view.setUrl(QUrl.fromLocalFile(os.path.join(web_dir(), "index.html")))
         self._place_window()
@@ -555,6 +627,51 @@ class WebJimmyWindow(W.JimmyWindow):
             "local_enabled": bool(cfg.get("local_enabled", False)), "route": cfg.get("route", "claude"),
             "wake_label": self._wake_label(), "psy": self._psy_level() > 0,
         }})
+
+    # ---- bouton « Vérifier les mises à jour » : cherche, et s'il y en a une, télécharge et lance l'installation tout de suite
+    def check_update_now(self) -> None:
+        if self._updating:
+            return
+        self._updating = True
+        self._usig.state.emit("checking", "Recherche d'une mise à jour…", 0)
+
+        def work() -> None:
+            try:
+                import updater
+                from version import UPDATE_REPO
+                repo = self.cfg.get("update_repo") or UPDATE_REPO
+                upd = updater.check(repo)
+                if upd is None:
+                    self._usig.state.emit("none", f"Jimmy est à jour (version {__version__}).", 0)
+                    return
+                if not updater.can_self_update():
+                    self._usig.state.emit("manual", f"La version {upd.version} est disponible. La mise à jour automatique ne marche que "
+                                                    "sur la version installée : télécharge-la sur la page des releases.", 0)
+                    return
+                self._usig.state.emit("downloading", f"Mise à jour {upd.version} : téléchargement…", 0)
+                last = [-1]
+
+                def prog(done: int, total: int) -> None:
+                    pct = int(done * 100 / total) if total else 0
+                    if pct != last[0]:
+                        last[0] = pct
+                        self._usig.state.emit("downloading", f"Mise à jour {upd.version} : téléchargement {pct} %", pct)
+                path = updater.download(upd, prog)
+                self._usig.state.emit("installing", f"Installation de la {upd.version}… Jimmy se ferme puis se rouvre tout seul.", 100)
+                self._usig.install.emit(str(path))
+            except Exception as e:  # noqa: BLE001
+                self._usig.state.emit("error", f"Mise à jour impossible : {e}", 0)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_state(self, state: str, text: str, pct: int) -> None:
+        if state in ("none", "manual", "error"):
+            self._updating = False
+        self.jsb.emit({"t": "update", "state": state, "text": text, "pct": pct})
+
+    def _run_installer(self, path: str) -> None:
+        import updater
+        updater.run_installer(Path(path))
+        QApplication.quit()
 
     # ---- à quoi sert l'IA locale : compteurs visibles dans la barre latérale
     def _push_local_stats(self) -> None:
