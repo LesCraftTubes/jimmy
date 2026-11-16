@@ -31,6 +31,7 @@ check("contrôle anti-invention : vrais noms acceptés, faux refusés", agent.un
 check("« aller sur mon site » déclenche l'exploration", agent.prefetch("tu peux aller sur mon site et chercher les reliques")[0][0] == "explorer_site")
 rows = web.ranked_rows("Relique B F Vitesse +5 % Vitesse +10 % Sceau du Tyran S+ Dégâts d'attaque +3 · Vitesse d'attaque +20 % Dégâts d'attaque +6 Charme de la Lame S Dégâts d'attaque +2 Dégâts d'attaque +4")
 check("rangs : S+ avant S, F ignoré, effet coupé", [r[0] for r in rows] == ["Sceau du Tyran", "Charme de la Lame"] and rows[0][2] == "Dégâts d'attaque +3 · Vitesse d'attaque +20" )
+check("fausse excuse « je ne peux pas parcourir de sites » détectée", bool(agent._NOWEB.search("Aurélie ne peut pas parcourir des sites Web ou lire des pages.")) and not agent._NOWEB.search("Voici les 5 reliques : Sceau du Tyran."))
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

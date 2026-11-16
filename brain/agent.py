@@ -190,6 +190,9 @@ _REFUS = re.compile(
 # Elle PROMET de passer la main (« je vais demander à Claude », « j'ai transmis à Jimmy ») sans l'avoir fait : le code le fait pour de vrai
 _PROMESSE = re.compile(r"(demander|demande|transmis|transmettre|transmets|passe[rz]?|passerai|confie[rz]?|renvoie|laisse)[^.!?]{0,40}(à|a|au|aux)\s+(claude|jimmy)|"
                        r"(claude|jimmy)\s+(va|pourra|peut|reprend|reprendra|doit)\b", re.I)
+# Fausse excuse : « je ne peux pas parcourir des sites / lire des pages web » (elle le peut, avec explorer_site)
+_NOWEB = re.compile(r"(ne (peux|pourrai|sais|suis)[^.]{0,30}(parcourir|naviguer|acc[eé]der|lire|consulter|ouvrir|aller)[^.]{0,50}(site|web|internet|pages?|lien|url)|"
+                    r"(pas|plus)\s+(la capacit[eé]|acc[eè]s)[^.]{0,40}(site|web|internet|pages?)|ne peut pas parcourir)", re.I)
 _VIDE = ("", "(pas de réponse)", "Je n'ai pas réussi à conclure en quelques étapes.")
 
 
@@ -432,6 +435,21 @@ class LocalAgent:
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."
+        if (reply and _NOWEB.search(reply[:500]) and not ctx.notes.get("tool_text") and "explorer_site" in self.registry.tools
+                and not _BAD_SHOT.search(user_text) and not ctx.notes.get("noweb_retry")):
+            # « Je ne peux pas parcourir de sites » est FAUX : elle le fait (explorer_site). Le code lit le site, puis elle répond avec les pages.
+            ctx.notes["noweb_retry"] = True
+            dom = _DOMAIN.search(user_text)
+            args = {"adresse": dom.group(1) if dom else "", "mots": re.sub(r"\s+", " ", user_text)[:200]}
+            messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": "noweb_0", "type": "function",
+                             "function": {"name": "explorer_site", "arguments": json.dumps(args, ensure_ascii=False)}}]})
+            messages.append({"role": "tool", "tool_call_id": "noweb_0", "name": "explorer_site", "content": self.registry.call("explorer_site", args, ctx)})
+            messages += [{"role": "assistant", "content": reply},
+                         {"role": "user", "content": "Tu PEUX lire des sites : explorer_site vient de le faire, son résultat est ci-dessus. Réponds maintenant à la demande avec ces pages, sans t'excuser."}]
+            try:
+                reply = (self.engine.chat(messages, tools=None).get("content") or "").strip() or reply
+            except Exception:  # noqa: BLE001
+                pass
         if reply and (_SITE_ASK.search(user_text) or _WEB.search(user_text) or _DOMAIN.search(user_text)) and not _BAD_SHOT.search(user_text):
             # Contrôle anti-invention : chaque nom cité doit venir d'une page réellement lue ; sinon elle lit le site puis refait sa réponse.
             bad = ungrounded(reply, ctx.notes.get("tool_text", ""))

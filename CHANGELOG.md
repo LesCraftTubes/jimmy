@@ -1,5 +1,8 @@
 ﻿# Historique des versions
 
+## 2.5.7
+- **Fini le « je ne peux pas parcourir de sites » d'Aurélie.** Quand elle s'excusait à tort de ne pas pouvoir lire un site (alors qu'elle le peut), Jimmy lit maintenant le site à sa place dans la foulée et elle répond avec les pages lues, sans s'excuser. Ça réglait aussi les cas où elle répondait bien une fois, puis refusait au tour suivant.
+
 ## 2.5.6
 - **« Les plus puissants » : Aurélie choisit parmi les rangs les plus hauts.** Sur une page qui classe des éléments par rang (S+, S, A…), le code en extrait la liste courte des meilleurs et la donne à Aurélie, qui ne se perd plus dans le tableau complet. Si son petit modèle invente encore un nom, la réponse est composée directement par le code avec les noms, rangs et effets recopiés tels quels.
 - Vérifié en vrai sur le wiki : elle parcourt le site toute seule, sans passer la main, et rend les 5 reliques de rang S+ avec leurs vrais effets.
