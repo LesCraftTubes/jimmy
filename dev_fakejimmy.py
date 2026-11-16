@@ -198,6 +198,30 @@ def scenario():
         check("sa réponse cite le fichier modifié", "index.html" in r4, r4[:160])
         shot("fake_4_activite.png")
 
+        # ---------------------------------------------------- 4b. passage de relais demandé : Aurélie fait sa part, PUIS Jimmy fait la sienne
+        m = len(LOG)
+        gui(lambda: win.submit("@local d'abord Aurélie se présente, puis ensuite tu passes le relais à Jimmy pour qu'il se présente lui-même. Une phrase chacun."))
+        check("relais : Aurélie fait sa part (elle se présente)", wait(lambda: local_replies(m), 150))
+        check("relais : le passage de la main vers Jimmy a vraiment lieu", wait(lambda: since(m, t="handoff", to="jimmy"), 60))
+        check("relais : Jimmy répond à son tour", wait(lambda: any(e.get("t") == "msg" and e.get("role") == "assistant" and "IA LOCALE" not in str(e.get("label", "")) for e in LOG[m:]), 240))
+        wait(lambda: gui_wait(lambda: not win.busy), 120, 1.0)
+        jr = [str(e.get("text", "")) for e in LOG[m:] if e.get("t") == "msg" and e.get("role") == "assistant" and "IA LOCALE" not in str(e.get("label", ""))]
+        ar = local_replies(m)
+        show("relais : Aurélie", ar[0]["text"] if ar else "")
+        show("relais : Jimmy", jr[0] if jr else "")
+        check("relais : les deux messages viennent de deux auteurs différents", bool(ar) and bool(jr) and ar[0]["text"][:60] != jr[0][:60])
+        check("relais : Jimmy se présente lui-même (il parle de lui, pas d'Aurélie seule)", bool(jr) and "Jimmy" in jr[0], jr[0][:120] if jr else "")
+        shot("fake_4b_relais.png")
+
+        # ---------------------------------------------------- 4c. une demande de modification adressée à Aurélie passe AUTOMATIQUEMENT à Jimmy
+        m = len(LOG)
+        gui(lambda: win.submit("@local modifie le texte du bouton en « Payer » dans index.html. Réponds en une phrase."))
+        check("modification demandée à Aurélie : le relais vers Jimmy est automatique", wait(lambda: since(m, t="handoff", to="jimmy"), 90))
+        check("modification demandée à Aurélie : Jimmy travaille (outils vus en direct)", wait(lambda: since(m, t="work", phase="start"), 180))
+        wait(lambda: gui_wait(lambda: not win.busy) and since(m, t="work", phase="end"), 240, 1.0)
+        check("modification demandée à Aurélie : le fichier est bien modifié par Jimmy", "Payer" in (site / "index.html").read_text(encoding="utf-8"))
+        wait(lambda: since(m, t="dialog"), 120)
+
         # ---------------------------------------------------- 5. la discussion se sauvegarde et se rouvre en entier
         sid = gui_wait(lambda: win._current_sid())
         check("la discussion avec Aurélie est devenue celle de Claude (un seul fil)", sid and not extras.is_local(sid), str(sid))

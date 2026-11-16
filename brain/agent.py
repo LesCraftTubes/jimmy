@@ -95,7 +95,7 @@ _LAST_SHOT = re.compile(r"(derni[èe]re|derniere) (capture|image|screen)", re.I)
 _JUDGE = re.compile(r"(juge|[ée]value|critique|donne[- ]moi ton avis|ton avis sur|qu'?est[- ]ce que tu penses|que penses[- ]tu|note[- ]moi|est[- ]ce (que )?(c'est|ça|ca) (beau|joli|lisible|r[ée]ussi)|"
                     r"(beau|joli|moche|lisible|r[ée]ussi|harmonieu|coh[ée]rent).{0,30}(design|rendu|page|site|couleurs?)|(design|rendu|esth[ée]tique|couleurs?|palette|contraste|lisibilit[ée]|mise en page)"
                     r".{0,30}(bien|correct|r[ée]ussi|lisible|ok|bon|bonne|harmonieu|probl[èe]me))", re.I)
-_JIMMY_WORK = re.compile(r"(que fait (jimmy|il)|qu'?est[- ]ce (que )?(jimmy|il) (fait|a fait|est en train)|o[uù] en est (jimmy|il)|ce que (jimmy|il) (fait|a fait|vient de faire)|"
+_JIMMY_WORK = re.compile(r"(que fait (jimmy|il)|qu'?est[- ]ce (que |qu')?(jimmy|il) (fait|a fait|est en train|vient de|a modifi|a chang)|o[uù] en est (jimmy|il)|ce que (jimmy|il) (fait|a fait|vient de faire)|"
                          r"(le )?travail de jimmy|jimmy (travaille|bosse) sur quoi|qu'?a[- ]t[- ]il (fait|modifi)|qu'?est[- ]ce qu'?il (a modifi|vient de))", re.I)
 _CHECK_FILES = re.compile(r"(rel[iî]s|v[ée]rifie|contr[ôo]le|regarde).{0,40}(syntaxe|fichiers? (que )?jimmy|ses modifs|ses modifications|ce qu'?il a modifi)", re.I)
 _CLICK = re.compile(r"clique[rz]? (?:sur )?(?:le |la |les |l')?(?:bouton |lien |onglet |menu |champ )?[«\"']?(.+?)[»\"']?(?= (?:et |puis |,)|[.!?]|$)", re.I)
@@ -158,6 +158,8 @@ def prefetch(user_text: str) -> list:
     return calls
 
 
+INTRO_LOCAL = ("Moi, c'est Aurélie, l'IA locale de Jimmy : je tourne gratuitement sur ton PC et je m'occupe des recherches, des captures, de la relecture "
+               "des fichiers et du contrôle des rendus pour que Jimmy se concentre sur le travail difficile.")
 CAPS_LOCAL = (
     "Moi, Aurélie, je suis l'IA locale de Jimmy : gratuite, sur ton PC, sans consommer ton abonnement. Je sais chercher sur Internet "
     "(navigateur invisible, vrais résultats), lire des pages, chercher des fichiers par nom ou dans leur contenu, lire et lister tes dossiers, "
@@ -182,6 +184,45 @@ _VIDE = ("", "(pas de réponse)", "Je n'ai pas réussi à conclure en quelques �
 _LOURD = re.compile(r"(serveur|d.ploie|base de donn.e|\bsql\b|refais|refactor|r.[ée]cri|architecture|\bbug\b|plante|corrige (le|la|les|mon|ma)|"
                     r"ajoute (une|un) (fonction|page|syst.me|commande)|\bskript\b|\.sk\b|release|publie|github|mise . jour|installe|plugin|boss|combat|"
                     r"corrige|modifie|bouton|couleur|interface|apparence|affichage|th.me|contraste|design)", re.I)
+
+
+# ---------------------------------------------------------------- passage de relais demandé par l'utilisateur
+_RELAY = re.compile(r"(?:[,;.]\s*|\s)(?:(?:et\s+)?(?:puis|ensuite|apr[èe]s|alors)\s+)?(?:tu\s+)?(?:passe[sz]?|passer|transmets?|transmettre|donne[sz]?|donner|laisse[sz]?)\s+"
+                    r"(?:le\s+|la\s+)?(?:relais|main|parole)\s+(?:[àa]|vers)\s+jimmy\b[\s,:]*(?:pour qu'?(?:il\s+)?|afin qu'?(?:il\s+)?|et qu'?(?:il\s+)?)?", re.I)
+_TELL = re.compile(r"\b(?:dis|demande|dites|demandez)(?:[- ]?lui)?\s+(?:[àa]\s+)?jimmy\s+(?:de\s+|d')?", re.I)
+_BOTH_INTRO = re.compile(r"(pr[ée]sentez[- ]vous|vous pr[ée]senter|chacun (?:son|à|a) tour)", re.I)
+_FILLER = re.compile(r"^(?:hey\s+)?(?:aur[ée]lie|salut|ok|nn|non|alors|d'abord|premi[èe]rement|oui|ouais|ben|bah|donc|et)\b[\s,:!.]*", re.I)
+_TAIL = re.compile(r"[\s,;.]*(?:et\s+)?(?:puis|ensuite|apr[èe]s|alors)?[\s,;.]*$", re.I)
+
+
+def split_relay(text: str):
+    """La demande contient-elle un passage de relais ? -> (ce que fait Aurélie, ce que fait Jimmy) ou None.
+
+    « d'abord Aurélie se présente, puis passe le relais à Jimmy pour qu'il se présente » -> ("présente-toi...", "présente-toi toi-même...").
+    Si Aurélie n'a rien à faire avant (« dis à Jimmy de modifier le bouton »), sa part est vide : tout passe à Jimmy."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    m = _RELAY.search(t) or _TELL.search(t)
+    if not m:
+        if _BOTH_INTRO.search(t):
+            return "présente-toi en deux phrases", "présente-toi toi-même en deux phrases"
+        return None
+    her, jim = t[:m.start()], t[m.end():]
+    for _ in range(4):
+        new = _FILLER.sub("", her.strip())
+        if new == her.strip():
+            break
+        her = new
+    her = _TAIL.sub("", her).strip()
+    if re.search(r"pr[ée]sent", her, re.I):
+        her = "présente-toi en deux phrases"
+    jim = jim.strip(" ,;.:")
+    if re.search(r"pr[ée]sent", jim, re.I):
+        jim = "présente-toi toi-même en deux phrases"
+    if len(re.sub(r"\W+", "", her)) < 4:
+        her = ""
+    return her, jim
 
 
 def needs_claude(text: str) -> bool:
@@ -256,8 +297,29 @@ class LocalAgent:
                     out.append(f"### {c.get('path', '')} — {c.get('title', '')}\n{str(c.get('text', ''))[:1500]}")
         return ("Extraits retrouvés pour cette demande (informations) :\n\n" + "\n\n".join(out)) if out else ""
 
-    def run(self, user_text: str, readonly: bool = False):
+    def run(self, user_text: str, readonly: bool = False, _norelay: bool = False):
         """-> (réponse, résumé à transmettre à Claude ou "")."""
+        if not readonly and not _norelay:
+            rel = split_relay(user_text)
+            if rel:
+                # L'utilisateur a demandé un PASSAGE DE RELAIS : Aurélie fait SA part (et seulement la sienne), puis Jimmy fait la sienne, pour de vrai.
+                her, jim = rel
+                reply, handoff = "", ""
+                if her == "présente-toi en deux phrases":
+                    reply = INTRO_LOCAL                          # présentation courte et fixe : pas besoin du modèle
+                elif her:
+                    reply, handoff = self.run(her + " (fais seulement cette partie : la suite sera faite par Jimmy)", False, True)
+                    if handoff:
+                        return reply, handoff            # elle n'a pas pu / ça dépasse ses moyens : Jimmy prend toute la demande
+                self.last_reason = "relais"
+                todo = jim or "ce que l'utilisateur te demande"
+                done = f"Aurélie vient de faire SA part : « {reply[:600]} ».\n" if reply else "Aurélie n'a rien à faire avant : c'est à toi.\n"
+                return reply, (f"Demande de l'utilisateur : {user_text}\n\n{done}C'est maintenant À TOI (Jimmy) de faire la tienne : {todo}. "
+                               "Réponds directement à l'utilisateur ; ne refais pas la part d'Aurélie.")
+            if needs_claude(user_text) and not _JIMMY_WORK.search(user_text) and not _CHECK_FILES.search(user_text):
+                # Une demande de modification, de code, de serveur... adressée à Aurélie (« Hey Aurélie, modifie... ») : elle ne la traite pas, elle la passe à Jimmy tout de suite.
+                self.last_journal, self.last_reason = [], "relais"
+                return "", f"Demande de l'utilisateur : {user_text}"
         if not readonly and _SELF.search(user_text or ""):
             # « Qu'est-ce que tu sais faire ? » : elle répond de mémoire (aucune recherche, aucun token) ; si la question
             # concerne aussi Jimmy, elle lui passe la main pour qu'il présente ses propres capacités.

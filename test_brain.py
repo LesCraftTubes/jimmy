@@ -86,13 +86,13 @@ def agent_with(script):
 
 
 a = agent_with([{"content": "Je ne peux pas faire ça, je n'ai pas accès au serveur."}])
-reply, handoff = a.run("redémarre le serveur")
-check("refus -> Claude reprend (code)", a.last_reason == "refus" and "redémarre le serveur" in handoff)
+reply, handoff = a.run("explique-moi comment fonctionne le cache DNS")
+check("refus -> Claude reprend (code)", a.last_reason == "refus" and "cache DNS" in handoff)
 
 a = agent_with([{"content": "", "tool_calls": [{"id": "1", "function": {"name": "passer_a_claude", "arguments": {"resume": "gros changement"}}}]},
                 {"content": "Je passe la main à Claude."}])
-reply, handoff = a.run("refais tout le système de boutique")
-check("outil de relais -> raison 'demande' + demande d'origine", a.last_reason == "demande" and "refais tout le système" in handoff)
+reply, handoff = a.run("rédige un long rapport comparatif sur les cartes graphiques")
+check("outil de relais -> raison 'demande' + demande d'origine", a.last_reason == "demande" and "rapport comparatif" in handoff)
 
 a = agent_with([{"content": "", "tool_calls": [{"id": "1", "function": {"name": "ecrire_fichier", "arguments": {"chemin": "n.txt", "contenu": "salut"}}}]},
                 {"content": "C'est fait, n.txt est créé."}])

@@ -83,7 +83,7 @@ def fallback_message(user_text: str, journal: list, reason: str, name: str = DEF
     if journal:
         done = " J'ai déjà fait : " + " ; ".join(_clip(j, 90) for j in journal[-3:]) + "."
     why = {"demande": "ça dépasse mes moyens", "refus": "je n'y arrive pas", "indisponible": "mon moteur est éteint",
-           "erreur": "j'ai planté"}.get(reason, "j'ai besoin de toi")
+           "erreur": "j'ai planté", "relais": "c'est à toi de t'en occuper, l'utilisateur me l'a demandé"}.get(reason, "j'ai besoin de toi")
     return f"Jimmy, l'utilisateur demande : « {_clip(user_text, 220)} ».{done} Je te passe la main parce que {why}."
 
 
@@ -109,7 +109,7 @@ def message_to_jimmy(engine, user_text: str, journal: list, reason: str, name: s
         return backup
     done = "\n".join(f"- {_clip(j, 160)}" for j in (journal or [])[-6:]) or "(rien encore)"
     why = {"demande": "la tâche dépasse tes moyens", "refus": "tu n'as pas réussi", "indisponible": "ton moteur ne répond pas",
-           "erreur": "tu as rencontré une erreur"}.get(reason, "tu as besoin de lui")
+           "erreur": "tu as rencontré une erreur", "relais": "l'utilisateur veut que ce soit Jimmy qui s'en occupe (passage de relais demandé)"}.get(reason, "tu as besoin de lui")
     system = (f"Tu es {name}, l'IA locale de l'utilisateur. Tu parles à Jimmy, l'assistant Claude, entre collègues, en français, naturel, "
               f"tutoiement. « je » = toi ({name}) : ne parle JAMAIS de {name} à la troisième personne, ne t'excuse pas, commence par « Jimmy, ». "
               "L'utilisateur est un tiers (« il »). Écris UN message de 2 à 3 phrases courtes : ce que veut l'utilisateur, ce que tu as déjà fait ou trouvé "

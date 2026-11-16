@@ -1683,7 +1683,7 @@ class JimmyWindow(QMainWindow):
                 self._seed_local_context()
                 reply, handoff = self.local_agent.run(text)
             self._local_reason = self.local_agent.last_reason
-            if handoff and auto:
+            if handoff and (auto or self._local_reason == "relais"):       # passage de relais demandé : il a lieu quel que soit le sélecteur
                 self._relay_msg = self._relay_text(text, self._local_reason, self.local_agent.last_journal)
             self.sig.local_reply.emit(reply, handoff)
         except Exception as e:  # noqa: BLE001
@@ -1699,12 +1699,13 @@ class JimmyWindow(QMainWindow):
         "refus": "elle n'a pas pu faire cette demande",
         "indisponible": "le moteur local ne répond pas",
         "erreur": "elle a rencontré une erreur",
+        "relais": "tu le lui as demandé",
     }
 
     def _on_local_reply(self, text: str, handoff: str) -> None:
         self.thinking = False
         reason = getattr(self, "_local_reason", "")
-        auto = self._route() == "auto" and not getattr(self, "_local_forced", False)
+        auto = (self._route() == "auto" and not getattr(self, "_local_forced", False)) or reason == "relais"
         # En mode Auto, un refus ou du vide n'est pas montré : l'utilisateur voit l'IA locale parler à Jimmy, puis la réponse de Jimmy.
         show = bool(text) and not (handoff and auto and reason in ("refus", "indisponible", "erreur"))
         speak = bool(show and not handoff and self.btn_voice.isChecked() and not self._remote_turn)
