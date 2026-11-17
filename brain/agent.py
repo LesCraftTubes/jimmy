@@ -278,6 +278,26 @@ GROUND_MSG = ("ATTENTION : ta réponse contient des noms qui ne figurent PAS dan
 
 
 class LocalAgent:
+    def _answer_from_site(self, user_text: str, ctx) -> str:
+        """Après explorer_site : la question est reposée SEULE (sans l'historique ni les outils) sur le texte le plus pertinent des pages lues.
+        Le petit modèle bâclait dans la longue conversation (liste incomplète, descriptions inventées, faux « je ne peux pas »)."""
+        view = ctx.notes.get("site_view", "")
+        if not view:
+            return ""
+        system = ("Tu es Aurélie, l'IA locale de Jimmy. Réponds en français, court et exact, UNIQUEMENT d'après le texte fourni (pages d'un site déjà lues). "
+                  "Recopie les noms tels qu'ils sont écrits, sans inventer de description ; pour des objets, ajoute leur effet exact entre parenthèses s'il est dans le texte. Si on te demande une liste, donne TOUS les éléments du texte, du premier au dernier. "
+                  "Pour « les plus puissants / meilleurs », choisis dans la liste de rang le plus haut si elle est fournie. Ne t'excuse pas et ne refuse pas : "
+                  "si l'information n'est pas dans le texte, dis-le en une phrase.")
+        try:
+            msg = self.engine.chat([{"role": "system", "content": system},
+                                    {"role": "user", "content": "TEXTE DES PAGES :" + chr(10) + view[:15000] + chr(10) + chr(10) + "DEMANDE : " + re.sub(r"\s+", " ", user_text)[:300]}],
+                                   tools=None, temperature=0.0)
+        except Exception:  # noqa: BLE001
+            return ""
+        out = (msg.get("content") or "").strip()
+        return "" if (not out or _NOWEB.search(out[:500]) or _REFUS.search(out[:400])) else out
+
+
     def __init__(self, cfg, on_step=None):
         self.cfg = cfg
         self.on_step = on_step
@@ -403,8 +423,11 @@ class LocalAgent:
             self.last_journal, self.last_reason = list(ctx.journal), ""
             return final, ""
         reply = ""
+        direct = self._answer_from_site(user_text, ctx) if ctx.notes.get("site_view") else ""
+        if direct:
+            reply = direct
         seen, counts = set(), {}
-        for _ in range(MAX_STEPS + 1):
+        for _ in range(0 if direct else MAX_STEPS + 1):
             msg = self.engine.chat(messages, tools=tools if _ < MAX_STEPS else None)
             calls = msg.get("tool_calls") or _parse_text_calls(msg.get("content") or "")
             if not calls:
@@ -435,19 +458,37 @@ class LocalAgent:
                 messages.append({"role": "tool", "tool_call_id": c.get("id") or f"call_{i}", "name": name, "content": result})
         else:
             reply = reply or "Je n'ai pas réussi à conclure en quelques étapes."
-        if (reply and _NOWEB.search(reply[:500]) and not ctx.notes.get("tool_text") and "explorer_site" in self.registry.tools
+        if (reply and _NOWEB.search(reply[:500]) and "explorer_site" in self.registry.tools
                 and not _BAD_SHOT.search(user_text) and not ctx.notes.get("noweb_retry")):
             # « Je ne peux pas parcourir de sites » est FAUX : elle le fait (explorer_site). Le code lit le site, puis elle répond avec les pages.
             ctx.notes["noweb_retry"] = True
-            dom = _DOMAIN.search(user_text)
-            args = {"adresse": dom.group(1) if dom else "", "mots": re.sub(r"\s+", " ", user_text)[:200]}
-            messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": "noweb_0", "type": "function",
-                             "function": {"name": "explorer_site", "arguments": json.dumps(args, ensure_ascii=False)}}]})
-            messages.append({"role": "tool", "tool_call_id": "noweb_0", "name": "explorer_site", "content": self.registry.call("explorer_site", args, ctx)})
+            if not ctx.notes.get("tool_text"):          # rien n'a encore été lu : on lit ; sinon la page est déjà dans la conversation
+                dom = _DOMAIN.search(user_text)
+                args = {"adresse": dom.group(1) if dom else "", "mots": re.sub(r"\s+", " ", user_text)[:200]}
+                messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": "noweb_0", "type": "function",
+                                 "function": {"name": "explorer_site", "arguments": json.dumps(args, ensure_ascii=False)}}]})
+                messages.append({"role": "tool", "tool_call_id": "noweb_0", "name": "explorer_site", "content": self.registry.call("explorer_site", args, ctx)})
             messages += [{"role": "assistant", "content": reply},
                          {"role": "user", "content": "Tu PEUX lire des sites : explorer_site vient de le faire, son résultat est ci-dessus. Réponds maintenant à la demande avec ces pages, sans t'excuser."}]
             try:
                 reply = (self.engine.chat(messages, tools=None).get("content") or "").strip() or reply
+            except Exception:  # noqa: BLE001
+                pass
+        if (reply and (_NOWEB.search(reply[:500]) or _REFUS.search(reply[:400])) and ctx.notes.get("tool_text") and not ctx.notes.get("short_retry")
+                and not _BAD_SHOT.search(user_text)):
+            # Il REFUSE encore alors que la page est lue : on lui repose la question seule, sur l'extrait le plus pertinent (texte court, sans historique).
+            ctx.notes["short_retry"] = True
+            from . import web as _w
+            excerpt = _w.best_window(ctx.notes.get("tool_text", ""), user_text, 11000)
+            ctx.step("Relecture", "je repose la question sur l'extrait le plus pertinent")
+            try:
+                again = self.engine.chat([
+                    {"role": "system", "content": "Tu es Aurélie, l'IA locale de Jimmy. Réponds en français, court et exact, UNIQUEMENT d'après le texte fourni ci-dessous (page d'un site déjà lue). "
+                                                  "Recopie les noms tels qu'ils sont écrits. Si on te demande une liste, donne TOUS les éléments du texte, du premier au dernier, sans en sauter. Ne t'excuse pas, ne refuse pas : si l'information n'y est pas, dis-le en une phrase."},
+                    {"role": "user", "content": "TEXTE DE LA PAGE :" + chr(10) + excerpt + chr(10) + chr(10) + "QUESTION : " + re.sub(r"\s+", " ", user_text)[:300]}], tools=None, temperature=0.0)
+                again = (again.get("content") or "").strip()
+                if again and not _NOWEB.search(again[:500]) and not _REFUS.search(again[:400]):
+                    reply = again
             except Exception:  # noqa: BLE001
                 pass
         if reply and (_SITE_ASK.search(user_text) or _WEB.search(user_text) or _DOMAIN.search(user_text)) and not _BAD_SHOT.search(user_text):

@@ -235,6 +235,18 @@ def _anchors(raw: str, base: str) -> dict:
     return out
 
 
+def best_window(text: str, question: str, size: int = 3500) -> str:
+    """Extrait de `text` (la page lue) le plus riche en mots de la question : sert à reposer la question au modèle sur un texte COURT."""
+    words = keywords_of(question)
+    low = text.lower()
+    pos = [m.start() for wd in words[:8] for m in re.finditer(re.escape(wd), low)]
+    if len(text) <= size or not pos:
+        return text[:size]
+    start = max(range(0, len(text) - size + 1, 200), key=lambda s: sum(1 for p in pos if s <= p < s + size))
+    start = max(0, start - 600)          # un peu avant : le premier élément d'une liste est souvent juste au-dessus de la zone la plus dense
+    return text[start:start + size + 600]
+
+
 def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1500, on_page=None) -> str:
     """Parcourt un site à partir d'une page (liens du même site) et renvoie le texte des pages lues.
     Avec des mots-clés, les liens dont l'adresse ou le texte parlent du sujet sont suivis en premier (c'est elle qui cherche),
@@ -295,7 +307,7 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         low = txt.lower()
         if words and score:
             # fenêtre la plus riche en mots du sujet : grande pour la meilleure page, courte pour les autres
-            size = 9000 if rank == 0 else 700
+            size = 14000 if rank == 0 else 700
             pos = [m.start() for w in words[:6] for m in re.finditer(re.escape(w), low)]
             start_at = max(range(0, max(1, len(txt) - size + 1), 300), key=lambda s: sum(1 for p in pos if s <= p < s + size), default=0) if len(txt) > size else 0
             snip = txt[start_at:start_at + size]

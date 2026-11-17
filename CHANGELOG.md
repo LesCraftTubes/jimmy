@@ -1,5 +1,9 @@
 ﻿# Historique des versions
 
+## 2.5.10
+- **Aurélie répond juste après avoir exploré un site.** Après avoir lu les pages, elle répond maintenant dans une question courte et neuve, sans l'historique de la discussion, sur le texte le plus pertinent des pages (jusqu'à 15 000 caractères, la meilleure page en grand) et, pour « les plus puissants », avec la liste des rangs les plus hauts en tête. Avant, dans la longue conversation, son petit modèle bâclait : liste de 10 écoles de magie sur 14, descriptions inventées, ou « je ne peux pas parcourir de sites » alors que la page était lue.
+- **Si elle refuse quand même après avoir lu une page,** le code lui repose la question sur l'extrait le plus pertinent au lieu de passer la main à Claude.
+
 ## 2.5.9
 - **L'analyse d'image d'Aurélie s'intéresse aux données, plus aux couleurs.** Elle lit maintenant TOUT le texte de l'image, de haut en bas (une longue capture est découpée en bandes qui se recouvrent, agrandies pour être lisibles), puis le modèle de vision fait l'inventaire du contenu : qui dit quoi, titres, listes, tableaux et nombres, états, messages d'erreur, éléments coupés ou en double. Les couleurs et contrastes ne sont donnés que si tu poses une question sur l'apparence (« les contrastes sont bons ? », « c'est joli ? »).
 - **Une grande image ne fait plus planter son analyse** (erreur d'agrandissement corrigée).
