@@ -35,6 +35,8 @@ check("fausse excuse « je ne peux pas parcourir de sites » détectée", bool(a
 import sessions
 check("rechargement : message interne de relais masqué", sessions._user_text("Aurélie (l'IA locale) te dit : « Jimmy, ... »" + chr(10) + chr(10) + "Demande de l'utilisateur : x") == "" and sessions._user_text("Demande de l'utilisateur : x") == "")
 check("rechargement : ta vraie demande reste affichée", sessions._user_text("Va voir mon site") == "Va voir mon site")
+from brain import vision
+check("image : les couleurs seulement si on les demande", not vision.wants_design("Qu'est-ce qui est affiché ?") and vision.wants_design("Les contrastes sont bons ?"))
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

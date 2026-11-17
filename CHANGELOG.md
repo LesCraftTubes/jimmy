@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 2.5.9
+- **L'analyse d'image d'Aurélie s'intéresse aux données, plus aux couleurs.** Elle lit maintenant TOUT le texte de l'image, de haut en bas (une longue capture est découpée en bandes qui se recouvrent, agrandies pour être lisibles), puis le modèle de vision fait l'inventaire du contenu : qui dit quoi, titres, listes, tableaux et nombres, états, messages d'erreur, éléments coupés ou en double. Les couleurs et contrastes ne sont donnés que si tu poses une question sur l'apparence (« les contrastes sont bons ? », « c'est joli ? »).
+- **Une grande image ne fait plus planter son analyse** (erreur d'agrandissement corrigée).
+- **Les réponses de Jimmy ne disparaissent plus à la réouverture d'une discussion.** Depuis qu'on cache les messages internes de relais, les réponses de plusieurs tours se fondaient en une seule bulle rangée à l'heure du premier tour. Chaque tour a de nouveau sa bulle, à sa place.
+
 ## 2.5.8
 - **Les messages internes de passage de relais ne s'affichent plus quand tu rouvres une discussion.** Le long texte envoyé à Claude (« Aurélie (l'IA locale) te dit… Demande de l'utilisateur… Résumé… DÉJÀ FAIT… ») réapparaissait en gros comme si tu l'avais écrit. Il reste caché : tu ne vois que tes vrais messages, le dialogue Aurélie → Jimmy et les réponses.
 

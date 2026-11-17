@@ -51,6 +51,18 @@ def _user_text(content, raw: bool = False) -> str:
     return "" if text.startswith(_SKIP_PREFIXES) else text
 
 
+def _opens_turn(content) -> bool:
+    """Message « utilisateur » avec du texte (relais interne, notification...) : on ne l'affiche pas, mais il COUPE le tour de Jimmy
+    (sinon les réponses de plusieurs tours fusionnent en une seule bulle, rangée à l'heure du premier tour)."""
+    if isinstance(content, str):
+        return bool(content.strip())
+    if isinstance(content, list):
+        if any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
+            return False
+        return any(isinstance(c, dict) and c.get("type") == "text" and c.get("text", "").strip() for c in content)
+    return False
+
+
 def _assistant_text(content) -> str:
     if isinstance(content, str):
         return content.strip()
@@ -79,20 +91,24 @@ def _entries(path: Path):
 def load_messages(workdir: str, session_id: str) -> list:
     """[(role, texte)] : les messages lisibles d'une conversation, réponses regroupées par tour."""
     out = []
+    cut = False
     for d in _entries(project_dir(workdir) / f"{session_id}.jsonl"):
         content = (d.get("message") or {}).get("content")
         if d["type"] == "user":
             text = _user_text(content)
             if text:
                 out.append(["user", text])
+            elif _opens_turn(content):
+                cut = True
         else:
             text = _assistant_text(content)
             if not text:
                 continue
-            if out and out[-1][0] == "assistant":
+            if out and out[-1][0] == "assistant" and not cut:
                 out[-1][1] += "\n\n" + text
             else:
                 out.append(["assistant", text])
+            cut = False
     return [tuple(m) for m in out]
 
 
@@ -108,6 +124,7 @@ def _epoch(ts) -> float:
 def load_timeline(workdir: str, session_id: str) -> list:
     """Comme load_messages, mais avec l'heure : [(secondes, role, texte)] (réponses regroupées par tour)."""
     out = []
+    cut = False
     for d in _entries(project_dir(workdir) / f"{session_id}.jsonl"):
         content = (d.get("message") or {}).get("content")
         ts = _epoch(d.get("timestamp"))
@@ -115,14 +132,17 @@ def load_timeline(workdir: str, session_id: str) -> list:
             text = _user_text(content)
             if text:
                 out.append([ts, "user", text])
+            elif _opens_turn(content):
+                cut = True
         else:
             text = _assistant_text(content)
             if not text:
                 continue
-            if out and out[-1][1] == "assistant":
+            if out and out[-1][1] == "assistant" and not cut:
                 out[-1][2] += "\n\n" + text
             else:
                 out.append([ts, "assistant", text])
+            cut = False
     return [tuple(m) for m in out]
 
 
@@ -409,6 +429,7 @@ def mini_message(name: str, goal: str) -> str:
 def real_messages(workdir: str, session_id: str) -> list:
     """Les messages lisibles SANS les messages de reprise (donc la vraie conversation)."""
     out = []
+    cut = False
     for d in _entries(project_dir(workdir) / f"{session_id}.jsonl"):
         content = (d.get("message") or {}).get("content")
         if d["type"] == "user":

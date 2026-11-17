@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -114,7 +115,8 @@ def _data_url(path: str, max_side: int = 1280) -> str:
     from PySide6.QtGui import QImage
     img = QImage(str(check_image(path)))
     if max(img.width(), img.height()) > max_side:
-        img = img.scaled(max_side, max_side, 1, 1)       # Qt.KeepAspectRatio, Qt.SmoothTransformation
+        from PySide6.QtCore import Qt
+        img = img.scaled(max_side, max_side, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     buf = QBuffer()
     buf.open(QIODevice.WriteOnly)
     img.save(buf, "PNG")
@@ -203,11 +205,97 @@ def ask_vision(cfg, path: str, question: str, facts: str = "", timeout_note: boo
     return str(msg.get("content") or "").strip()
 
 
+
+# ------------------------------------------------------------------ analyse du CONTENU : découpe en bandes, lecture complète, données
+_DESIGN_Q = re.compile(r"(couleur|contraste|design|police|typo|beau|joli|moche|style|esth[ée]tique|palette|th[èe]me|lisib|mise en page|alignement)", re.I)
+
+
+def wants_design(question: str) -> bool:
+    """Seules les questions sur l'APPARENCE réclament les couleurs et les contrastes ; sinon on s'intéresse aux données de l'image."""
+    return bool(_DESIGN_Q.search(question or ""))
+
+
+def tiles(path: str, max_tiles: int = 8):
+    """Découpe une image en bandes horizontales qui se recouvrent un peu (une longue capture est illisible d'un seul bloc) et agrandit
+    celles qui sont petites : [(chemin_png, y_début)]. Les fichiers temporaires sont à supprimer par l'appelant (voir cleanup_tiles)."""
+    import tempfile
+    from PySide6.QtGui import QImage
+    img = QImage(str(check_image(path)))
+    if img.isNull():
+        raise ValueError("image illisible")
+    w, h = img.width(), img.height()
+    band = max(700, int(w * 1.0))
+    starts = [0] if h <= int(band * 1.3) else list(range(0, max(1, h - int(band * 0.15)), int(band * 0.85)))[:max_tiles]
+    out = []
+    tmp = Path(tempfile.mkdtemp(prefix="jimmy-tiles-"))
+    for i, y in enumerate(starts):
+        part = img.copy(0, y, w, min(band, h - y))
+        if part.width() < 1600:
+            from PySide6.QtCore import Qt
+            part = part.scaledToWidth(min(2000, int(part.width() * 2.2)), Qt.SmoothTransformation)
+        f = tmp / f"t{i}.png"
+        part.save(str(f), "PNG")
+        out.append((str(f), y))
+    return out
+
+
+def cleanup_tiles(items) -> None:
+    import shutil
+    for f, _y in items[:1]:
+        shutil.rmtree(Path(f).parent, ignore_errors=True)
+
+
+def ocr_full(path: str, tl=None) -> str:
+    """Tout le texte de l'image : chaque bande est lue séparément, les lignes répétées à cause du recouvrement sont retirées."""
+    tl = tl or tiles(path)
+    own = tl is not None
+    lines, seen_tail = [], []
+    for f, _y in tl:
+        try:
+            txt = ocr(f)
+        except OSError:
+            raise
+        new = [ln for ln in txt.splitlines() if ln.strip()]
+        for ln in new:
+            if ln.strip() in seen_tail[-8:] and len(ln.strip()) > 3:
+                continue
+            lines.append(ln)
+        seen_tail = [x.strip() for x in lines[-12:]]
+    return "\n".join(lines)
+
+
+DATA_PROMPT = ("Cette image est une capture d'écran ou un document. Ne parle PAS des couleurs ni du style. Fais l'inventaire des DONNÉES : "
+               "titres, qui dit quoi (conversation), listes, tableaux (donne les lignes et les nombres), valeurs, noms, boutons, messages d'erreur ou "
+               "d'avertissement, état affiché. Recopie les textes importants tels qu'ils sont écrits. Puis, en une ou deux phrases, dis ce que montre "
+               "cette image et si quelque chose est anormal (erreur, élément coupé, doublon). Si quelque chose est illisible, dis-le au lieu de deviner.")
+
+
+def ask_vision_many(cfg, jobs: list, mode: str = "data") -> list:
+    """Plusieurs questions au modèle de vision en UNE seule session (un seul déchargement du modèle de discussion). jobs = [(chemin, question)]."""
+    model = vision_model(cfg)
+    if not model or not jobs:
+        return []
+    system = ("Tu es Aurélie, l'IA locale de Jimmy. Tu regardes une capture et tu réponds en français, précisément et factuellement. "
+              "Décris seulement ce que tu VOIS ; recopie les textes et les nombres exactement ; si tu n'es pas sûre, dis-le.")
+    out = []
+    with vision_session(cfg, model) as eng:
+        for path, question in jobs:
+            msg = eng.chat([{"role": "system", "content": system},
+                            {"role": "user", "content": [{"type": "text", "text": question},
+                                                         {"type": "image_url", "image_url": {"url": _data_url(path)}}]}], max_tokens=900)
+            out.append(str(msg.get("content") or "").strip())
+    return out
+
+
 def inspect(cfg, path: str, question: str = "") -> dict:
-    """Tout ce qu'on peut savoir d'une image, en données : {file, w, h, colors, zones, audit, facts, verdict, ocr, vlm, notes}."""
+    """Tout ce qu'on peut savoir d'une image, en données : {file, basics, audit, facts, verdict, ocr, vlm, notes, design, tiles}.
+    Par défaut on s'intéresse au CONTENU (texte lu sur toute l'image découpée en bandes, données repérées par le modèle de vision) ;
+    les couleurs et contrastes ne sont préparés que si la question porte sur l'apparence."""
     from . import design, live
     p = check_image(path)
-    info = {"file": p.name, "basics": None, "audit": live.load_audit(str(p)), "facts": "", "verdict": [], "ocr": "", "vlm": "", "vlm_model": "", "notes": []}
+    dz = wants_design(question)
+    info = {"file": p.name, "basics": None, "audit": live.load_audit(str(p)), "facts": "", "verdict": [], "ocr": "", "vlm": "", "vlm_model": "",
+            "notes": [], "design": dz, "tiles": 1}
     try:
         info["basics"] = basics(str(p))
     except Exception as e:  # noqa: BLE001
@@ -215,21 +303,30 @@ def inspect(cfg, path: str, question: str = "") -> dict:
     if info["audit"]:
         info["facts"] = design.format_audit(info["audit"])
         info["verdict"] = design.verdict(info["audit"])
+    tl = []
     try:
-        info["ocr"] = ocr(str(p))
+        tl = tiles(str(p))
+        info["tiles"] = len(tl)
+        info["ocr"] = ocr_full(str(p), tl)
     except Exception as e:  # noqa: BLE001
         info["notes"].append(f"lecture du texte indisponible ({e})")
     model = vision_model(cfg)
     if model:
         try:
-            info["vlm"] = ask_vision(cfg, str(p), question, facts=info["facts"])
+            if dz:
+                info["vlm"] = ask_vision(cfg, str(p), question, facts=info["facts"])
+            else:
+                ask = (question.strip() + "\n" + "\n" if question.strip() else "") + DATA_PROMPT
+                jobs = [(str(p), ask)] if len(tl) <= 1 else [(f, ask + f" (partie {k + 1} sur {len(tl)} de l'image, de haut en bas)") for k, (f, _y) in enumerate(tl[:4])]
+                answers = ask_vision_many(cfg, jobs)
+                info["vlm"] = ("\n" + "\n").join(a for a in answers if a)
             info["vlm_model"] = model
         except Exception as e:  # noqa: BLE001
             info["notes"].append(f"modèle de vision indisponible ({str(e)[:140]})")
-    elif not info["audit"]:
-        info["notes"].append("aucun modèle de vision n'est installé : je n'ai lu que le texte et les couleurs, je ne peux pas juger l'aspect visuel (alignements, style)")
     else:
-        info["notes"].append("pas de modèle de vision : mon jugement repose sur les mesures exactes de la page, pas sur une vraie vue de l'image")
+        info["notes"].append("aucun modèle de vision n'est installé : je n'ai lu que le texte de l'image, je ne peux pas interpréter ce qu'elle montre")
+    if tl:
+        cleanup_tiles(tl)
     return info
 
 
@@ -268,26 +365,24 @@ def judge_reply(info: dict, title: str = "") -> str:
     return "\n".join(out)
 
 
-def analyze(cfg, path: str, question: str = "", maxc: int = 4200) -> str:
-    """Analyse complète d'une image, en texte pour Aurélie / Jimmy. Dit clairement ce qui a été fait et ce qui manque."""
+def analyze(cfg, path: str, question: str = "", maxc: int = 6500) -> str:
+    """Analyse d'une image, en texte pour Aurélie / Jimmy : d'abord le CONTENU (texte, données), les couleurs seulement si on les demande."""
     from . import design
     info = inspect(cfg, path, question)
-    parts = [f"Image : {info['file']}"]
     b = info["basics"]
-    if b:
-        cols = ", ".join(f"{design.color_name(c)} {c} ({pc} %)" for c, pc in b["colors"])
-        parts.append(f"Taille {b['w']}×{b['h']} px, ton {b['tone']}. Couleurs dominantes (mesurées sur les pixels) : {cols}.")
-        lab = ("haut", "milieu", "bas"), ("à gauche", "au centre", "à droite")
-        parts.append("Répartition des couleurs : " + " ; ".join(
-            lab[0][y] + " : " + ", ".join(f"{lab[1][x]} {design.color_name(b['zones'][y][x])}" for x in range(3)) for y in range(3)) + ".")
-    if info["facts"]:
-        parts.append("MESURES EXACTES prises dans la page au moment de la capture (fiables) :\n" + info["facts"])
-        parts.append("VERDICT DES MESURES (à reprendre tel quel, sans l'adoucir) : " + (
-            ", ".join(info["verdict"]) + ". Un contraste sous 4,5:1 (3:1 pour un grand texte) n'est JAMAIS acceptable." if info["verdict"] else "aucun défaut mesuré."))
+    parts = [f"Image : {info['file']}" + (f" ({b['w']}×{b['h']} px" + (f", lue en {info['tiles']} bandes" if info["tiles"] > 1 else "") + ")" if b else "")]
     if info["ocr"] or not any("texte" in n for n in info["notes"]):
-        parts.append("Texte lu dans l'image :\n" + (info["ocr"][:1800] or "(aucun texte reconnu)"))
+        parts.append("TEXTE LU dans toute l'image (de haut en bas) :" + chr(10) + (info["ocr"][:3200] or "(aucun texte reconnu)"))
     if info["vlm"]:
-        parts.append("Ce que voit le modèle de vision (" + info["vlm_model"] + ") :\n" + info["vlm"][:1600])
+        parts.append("CE QUE LE MODÈLE DE VISION A REPÉRÉ (" + info["vlm_model"] + ") : données, listes, états, anomalies :" + chr(10) + info["vlm"][:2600])
+    if info["design"]:
+        if b:
+            cols = ", ".join(f"{design.color_name(c)} {c} ({pc} %)" for c, pc in b["colors"])
+            parts.append(f"Couleurs dominantes (mesurées sur les pixels) : {cols}.")
+        if info["facts"]:
+            parts.append("MESURES EXACTES prises dans la page au moment de la capture (fiables) :" + chr(10) + info["facts"])
+            parts.append("VERDICT DES MESURES (à reprendre tel quel, sans l'adoucir) : " + (
+                ", ".join(info["verdict"]) + ". Un contraste sous 4,5:1 (3:1 pour un grand texte) n'est JAMAIS acceptable." if info["verdict"] else "aucun défaut mesuré."))
     if info["notes"]:
         parts.append("Limites : " + " ; ".join(info["notes"]) + ".")
-    return "\n".join(parts)[:maxc]
+    return chr(10).join(parts)[:maxc]
