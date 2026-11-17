@@ -54,3 +54,4 @@ webtest.txt
 cuda/
 *.dll
 _build_v2.log
+ocr.ps1
