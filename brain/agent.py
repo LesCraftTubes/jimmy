@@ -82,6 +82,8 @@ def _args(call: dict) -> dict:
 _WEB = re.compile(r"(sur (internet|le web|google)|en ligne|actualit|dernière version|prix de )", re.I)
 _DOMAIN = re.compile(r"(?<![\w@/.])((?:[a-z0-9-]+\.)+(?:fr|com|net|org|io|dev|eu|gg|app|info|me|co|tv|xyz)(?:/[^\s)>\]\"']*)?)", re.I)
 _SITE_ASK = re.compile(r"(documentation|\bwiki\b|mon site|sur le site|le site|la page web|parcour|explor|navigue|consulte|va (voir|regarder|chercher|lire)|aller (voir|regarder|chercher|lire))", re.I)
+_ASK_LIST = re.compile(r"(donne|liste|dis[- ]moi|montre|cite|quel(le)?s?|combien|r[ée]p[èe]te|d[ée]taille|c['’]est quoi|quoi comme)", re.I)
+_SITE_CTX = re.compile(r"(wiki|sur (mon|ton|le) site|page des|documentation|doc\b|explorer_site|Page lue|Résultat ·)", re.I)
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _MEM = re.compile(r"(souviens|mémoire|memoire|on avait (décidé|dit)|rappelle[- ]?moi|retiens|déjà fait)", re.I)
 
@@ -278,12 +280,26 @@ GROUND_MSG = ("ATTENTION : ta réponse contient des noms qui ne figurent PAS dan
 
 
 class LocalAgent:
+    def _followup_prefetch(self, user_text: str) -> list:
+        """Suite d'une conversation sur le site de l'utilisateur (« donne-moi ces 14 écoles ») : sans le mot « site » dans la phrase,
+        on relit quand même le site, avec les mots de la question précédente, au lieu de laisser le modèle deviner des adresses."""
+        t = user_text or ""
+        if len(t) > 200 or _BAD_SHOT.search(t) or not _ASK_LIST.search(t) or "explorer_site" not in self.registry.tools:
+            return []
+        recent = [h.get("content", "") for h in self.history[-6:]]
+        if not any(_SITE_CTX.search(x) for x in recent):
+            return []
+        prev_user = next((h.get("content", "") for h in reversed(self.history[-6:]) if h.get("role") == "user"), "")
+        return [("explorer_site", {"adresse": "", "mots": re.sub(r"\s+", " ", (prev_user + " " + t))[:260]})]
+
     def _answer_from_site(self, user_text: str, ctx) -> str:
         """Après explorer_site : la question est reposée SEULE (sans l'historique ni les outils) sur le texte le plus pertinent des pages lues.
         Le petit modèle bâclait dans la longue conversation (liste incomplète, descriptions inventées, faux « je ne peux pas »)."""
         view = ctx.notes.get("site_view", "")
         if not view:
             return ""
+        if self.found and self.found[-1][1][:200] not in view:
+            view += "\n" + "[Trouvé au tour précédent]" + "\n" + self.found[-1][1]
         system = ("Tu es Aurélie, l'IA locale de Jimmy. Réponds en français, court et exact, UNIQUEMENT d'après le texte fourni (pages d'un site déjà lues). "
                   "Recopie les noms tels qu'ils sont écrits, sans inventer de description ; pour des objets, ajoute leur effet exact entre parenthèses s'il est dans le texte. Si on te demande une liste, donne TOUS les éléments du texte, du premier au dernier. "
                   "Pour « les plus puissants / meilleurs », choisis dans la liste de rang le plus haut si elle est fournie. Ne t'excuse pas et ne refuse pas : "
@@ -308,6 +324,7 @@ class LocalAgent:
         self.packs = []
         self.history = []       # [{"role": "user"/"assistant", "content": ...}] : SES propres échanges
         self.thread = ""        # fil de la discussion (utilisateur / Jimmy), relu à chaque demande
+        self.found = []         # ce qu'elle a TROUVÉ aux derniers tours : [(demande, texte lu)] ; relu à chaque demande, comme son historique
         self.session_id = None  # discussion en cours (pour lire le travail de Jimmy dans son fil d'activité)
 
     # ------------------------------------------------------------------ préparation
@@ -330,6 +347,7 @@ class LocalAgent:
 
     def reset(self) -> None:
         self.history = []
+        self.found = []
 
     # ------------------------------------------------------------------ une demande
     def _system(self, user_text: str) -> str:
@@ -400,6 +418,10 @@ class LocalAgent:
         if ex:
             user_msg = ex + "\n\n=== DEMANDE ===\n" + user_text
         system = self._system(user_text)
+        if self.found:
+            system += (chr(10) + chr(10) + "=== CE QUE TU AS TROUVÉ JUSTE AVANT (résultats de tes outils aux derniers tours : relis-les AVANT de chercher à nouveau ; une demande de suite comme "
+                       "« donne-moi ces 14 écoles » s'y rapporte) ===" + chr(10)
+                       + (chr(10) + "---" + chr(10)).join(f"[Demande : {q[:140]}]" + chr(10) + t for q, t in self.found[-2:]))
         if self.thread:
             system += "\n\n=== FIL DE LA DISCUSSION (utilisateur et Jimmy, du plus ancien au plus récent) ===\n" + self.thread
         messages = [{"role": "system", "content": system}]
@@ -407,7 +429,7 @@ class LocalAgent:
         messages.append({"role": "user", "content": user_msg})
         tools = self.registry.schemas()
         final = ""
-        for i, (name, args) in enumerate(prefetch(user_text)):
+        for i, (name, args) in enumerate(prefetch(user_text) or self._followup_prefetch(user_text)):
             if name not in self.registry.tools:
                 continue
             cid = f"pre_{i}"
@@ -519,6 +541,9 @@ class LocalAgent:
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}]
         self.last_journal = list(ctx.journal)
         self.last_reason = ctx.notes.get("handoff_reason", "") if ctx.handoff else ""
+        seen_text = ctx.notes.get("site_view") or ctx.notes.get("tool_text", "")
+        if seen_text:
+            self.found = (self.found + [(user_text, seen_text.strip()[:2200])])[-3:]
         if not ctx.handoff and is_failure(reply):
             # Le petit modèle a refusé au lieu d'appeler l'outil de relais : le CODE passe la main, avec la demande d'origine.
             self.last_reason = "refus"

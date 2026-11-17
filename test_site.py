@@ -37,6 +37,7 @@ check("rechargement : message interne de relais masqué", sessions._user_text("A
 check("rechargement : ta vraie demande reste affichée", sessions._user_text("Va voir mon site") == "Va voir mon site")
 from brain import vision
 check("image : les couleurs seulement si on les demande", not vision.wants_design("Qu'est-ce qui est affiché ?") and vision.wants_design("Les contrastes sont bons ?"))
+check("suivi « donne-moi ces 14 écoles » : détecté, mais pas hors contexte", bool(agent._ASK_LIST.search("Bah écoute, donne-moi ces 14 écoles")) and bool(agent._SITE_CTX.search("la page Magie & sorts du Wiki")) and not agent._SITE_CTX.search("bonjour, quel temps fait-il ?"))
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)

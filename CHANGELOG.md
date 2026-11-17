@@ -1,5 +1,11 @@
 ﻿# Historique des versions
 
+## 2.5.11
+- **Aurélie se souvient de ce qu'elle a trouvé, pas seulement de ce qu'elle a répondu.** Les résultats de ses outils des derniers tours (pages lues, recherches, fichiers) sont relus à chaque demande. Une demande de suite comme « donne-moi ces 14 écoles » s'appuie sur ce qu'elle vient de trouver au lieu de repartir de zéro.
+- **Un suivi sans le mot « site » relit quand même le site.** Si la discussion parlait de ton site ou de ton wiki, « donne-moi ces 14 écoles » relance la lecture avec les mots de la question précédente, au lieu de laisser le petit modèle deviner des adresses.
+- **Une adresse devinée qui n'existe pas sur ton site** (erreur 404) fait parcourir le site pour trouver la bonne page.
+- **Quand elle passe la main à Jimmy, elle lui transmet un extrait de ce qu'elle a lu**, plus seulement la première ligne de chaque résultat.
+
 ## 2.5.10
 - **Aurélie répond juste après avoir exploré un site.** Après avoir lu les pages, elle répond maintenant dans une question courte et neuve, sans l'historique de la discussion, sur le texte le plus pertinent des pages (jusqu'à 15 000 caractères, la meilleure page en grand) et, pour « les plus puissants », avec la liste des rangs les plus hauts en tête. Avant, dans la longue conversation, son petit modèle bâclait : liste de 10 écoles de magie sur 14, descriptions inventées, ou « je ne peux pas parcourir de sites » alors que la page était lue.
 - **Si elle refuse quand même après avoir lu une page,** le code lui repose la question sur l'extrait le plus pertinent au lieu de passer la main à Claude.
