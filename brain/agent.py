@@ -82,7 +82,7 @@ def _args(call: dict) -> dict:
 _WEB = re.compile(r"(sur (internet|le web|google)|en ligne|actualit|dernière version|prix de )", re.I)
 _DOMAIN = re.compile(r"(?<![\w@/.])((?:[a-z0-9-]+\.)+(?:fr|com|net|org|io|dev|eu|gg|app|info|me|co|tv|xyz)(?:/[^\s)>\]\"']*)?)", re.I)
 _SITE_ASK = re.compile(r"(documentation|\bwiki\b|mon site|sur le site|le site|la page web|parcour|explor|navigue|consulte|va (voir|regarder|chercher|lire)|aller (voir|regarder|chercher|lire))", re.I)
-_ASK_LIST = re.compile(r"(donne|liste|dis[- ]moi|montre|cite|quel(le)?s?|combien|r[ée]p[èe]te|d[ée]taille|c['’]est quoi|quoi comme)", re.I)
+_ASK_LIST = re.compile(r"(donne|liste|dis[- ]moi|montre|cite|quel(le)?s?|combien|r[ée]p[èe]te|d[ée]taille|c['’]est quoi|quoi comme|m['’]avais|avais[- ]tu|c['’]est vrai|vraiment|s[uû]re?|certain|nombre|combien|huit|sept|deux|trois)", re.I)
 _SITE_CTX = re.compile(r"(wiki|sur (mon|ton|le) site|page des|documentation|doc\b|explorer_site|Page lue|Résultat ·)", re.I)
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 _MEM = re.compile(r"(souviens|mémoire|memoire|on avait (décidé|dit)|rappelle[- ]?moi|retiens|déjà fait)", re.I)
@@ -298,10 +298,17 @@ class LocalAgent:
         view = ctx.notes.get("site_view", "")
         if not view:
             return ""
+        from . import web as _wb
+        composed = _wb.compose_list(user_text) if " " in (user_text or "") else ""
+        if composed:       # « la liste de tous » : recopiée par le code depuis la page, rien n'est laissé à l'imagination du modèle
+            return composed
+        digest = _wb.structure_digest()
+        if digest:
+            view = digest + chr(10) + view
         if self.found and self.found[-1][1][:200] not in view:
             view += "\n" + "[Trouvé au tour précédent]" + "\n" + self.found[-1][1]
         system = ("Tu es Aurélie, l'IA locale de Jimmy. Réponds en français, court et exact, UNIQUEMENT d'après le texte fourni (pages d'un site déjà lues). "
-                  "Recopie les noms tels qu'ils sont écrits, sans inventer de description ; pour des objets, ajoute leur effet exact entre parenthèses s'il est dans le texte. Si on te demande une liste, donne TOUS les éléments du texte, du premier au dernier. "
+                  "Recopie les noms tels qu'ils sont écrits, sans inventer de description ; pour des objets, ajoute leur effet exact entre parenthèses s'il est dans le texte. Si on te demande une liste, donne TOUS les éléments du texte, du premier au dernier. Pour compter ou comparer des nombres, utilise la STRUCTURE EXACTE si elle est fournie : ces nombres sont fiables, ne recompte pas toi-même. Si ces chiffres confirment ce que dit l'utilisateur, réponds d'abord « Oui, tu as raison » ; ne le contredis que si les chiffres le contredisent vraiment. "
                   "Pour « les plus puissants / meilleurs », choisis dans la liste de rang le plus haut si elle est fournie. Ne t'excuse pas et ne refuse pas : "
                   "si l'information n'est pas dans le texte, dis-le en une phrase.")
         try:

@@ -1,5 +1,10 @@
 ﻿# Historique des versions
 
+## 2.5.12
+- **Les longues listes sont recopiées par le code, plus par le petit modèle.** Quand tu demandes « la liste de tous les sorts », « toutes les reliques », « l'ensemble de... », Aurélie lit la structure de la page (groupes et lignes) et recopie la liste exacte, groupe par groupe, sans rien inventer. Vérifié sur ton wiki : 14 écoles, 100 sorts, et 64 reliques en 4 catégories. Avant, au-delà de 40 éléments environ, son modèle complétait de mémoire et inventait (« Arcane : sort de base »...).
+- **Les nombres sont comptés par le code.** Pour « combien », « lesquels ont huit... », elle reçoit un comptage exact (« 12 groupes de 7 lignes ; 2 groupes de 8 lignes : Terre, Sang ») et s'appuie dessus. Si ces chiffres te donnent raison, elle te le confirme au lieu de te contredire.
+- **Les questions de suite sont mieux reconnues** (« tu m'avais pas dit que... », « c'est vrai que... ») : elle relit le site au lieu de répondre de mémoire.
+
 ## 2.5.11
 - **Aurélie se souvient de ce qu'elle a trouvé, pas seulement de ce qu'elle a répondu.** Les résultats de ses outils des derniers tours (pages lues, recherches, fichiers) sont relus à chaque demande. Une demande de suite comme « donne-moi ces 14 écoles » s'appuie sur ce qu'elle vient de trouver au lieu de repartir de zéro.
 - **Un suivi sans le mot « site » relit quand même le site.** Si la discussion parlait de ton site ou de ton wiki, « donne-moi ces 14 écoles » relance la lecture avec les mots de la question précédente, au lieu de laisser le petit modèle deviner des adresses.

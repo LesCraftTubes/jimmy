@@ -247,6 +247,147 @@ def best_window(text: str, question: str, size: int = 3500) -> str:
     return text[start:start + size + 600]
 
 
+
+# ------------------------------------------------------------------ listes longues : composées par le CODE (le petit modèle invente au-delà de ~40 éléments)
+last_html = {}            # adresse -> HTML des pages lues par le dernier crawl
+last_top_url = ""         # la page la plus pertinente du dernier crawl
+_FULL_LIST = re.compile(r"(tous|toutes|liste (compl[èe]te|enti[èe]re|de tous|de toutes|exhaustive)|l['’]ensemble|chacun|chacune|au complet|en entier|exhaustif)", re.I)
+_VOID = {"img", "br", "hr", "input", "meta", "link", "source", "wbr", "area", "col"}
+
+
+def extract_groups(page_html: str) -> list:
+    """Groupes de lignes d'une page : [(titre, [ligne, ...])]. Une ligne = un <li> ou un <tr> ; le titre = le <summary> ou le titre (h2-h4) qui précède.
+    Les blocs de description (classe « desc ») sont ignorés : il reste le nom et les chiffres (étoiles, mana, recharge...)."""
+    from html.parser import HTMLParser
+
+    class P(HTMLParser):
+        def __init__(s):
+            super().__init__(convert_charrefs=True)
+            s.groups, s.stack, s.skip, s.desc = [], [], 0, 0
+            s.head, s.head_buf, s.row, s.row_in = "", None, None, 0
+            s.has_td = s.has_th = False
+
+        def handle_starttag(s, tag, attrs):
+            if tag in _VOID:
+                return
+            cls = dict(attrs).get("class", "") or ""
+            is_desc = bool(re.search(r"desc", cls, re.I))
+            skip = tag in ("script", "style", "nav", "header", "footer", "svg", "noscript")
+            s.stack.append((tag, is_desc, skip))
+            s.skip += skip
+            s.desc += is_desc
+            if s.skip:
+                return
+            if tag in ("summary", "h2", "h3", "h4"):
+                s.head_buf = []
+            if tag in ("li", "tr"):
+                s.row_in += 1
+                if s.row_in == 1:
+                    s.row, s.has_td, s.has_th = [], False, False
+            if tag == "td":
+                s.has_td = True
+            if tag == "th":
+                s.has_th = True
+
+        def handle_endtag(s, tag):
+            if tag in _VOID:
+                return
+            for k in range(len(s.stack) - 1, -1, -1):
+                if s.stack[k][0] == tag:
+                    _t, is_desc, skip = s.stack.pop(k)
+                    s.skip -= skip
+                    s.desc -= is_desc
+                    break
+            if s.skip:
+                return
+            if tag in ("summary", "h2", "h3", "h4") and s.head_buf is not None:
+                parts = [x for x in s.head_buf if x]
+                s.head = (parts[0] if tag == "summary" and parts else " ".join(parts)).strip()
+                s.head_buf = None
+            if tag in ("li", "tr") and s.row_in:
+                s.row_in -= 1
+                if s.row_in == 0 and s.row is not None:
+                    txt = re.sub(r"\s+", " ", " ".join(s.row)).strip()
+                    if len(txt) >= 3 and not (s.has_th and not s.has_td):       # une ligne d'en-tête de tableau n'est pas un élément
+                        if not s.groups or s.groups[-1][0] != s.head:
+                            s.groups.append((s.head, []))
+                        s.groups[-1][1].append(txt)
+                    s.row = None
+
+        def handle_data(s, data):
+            d = data.strip()
+            if not d or s.skip or s.desc:
+                return
+            if s.head_buf is not None:
+                s.head_buf.append(d)
+            if s.row is not None:
+                s.row.append(d)
+
+    p = P()
+    try:
+        p.feed(page_html)
+    except Exception:  # noqa: BLE001
+        pass
+    return [(h, rows) for h, rows in p.groups if len(rows) >= 3]
+
+
+def _row_tokens(row: str) -> set:
+    return {("*" if "\u2605" in t else t.lower()) for t in re.findall(r"[A-Za-z\u00c0-\u00ff\u2605]+", row)}
+
+
+def list_groups() -> list:
+    """Les groupes de lignes (listes) de la page la plus pertinente : [(titre, [ligne...])], ceux qui se ressemblent (même structure)."""
+    if not last_top_url or last_top_url not in last_html:
+        return []
+    groups = extract_groups(last_html[last_top_url])
+    if not groups:
+        return []
+    # mots « de structure » : présents dans la plupart des lignes de plusieurs groupes (étoiles, « mana »...) ; les noms propres ne reviennent que dans un groupe
+    cnt = {}
+    for _h, rows in groups:
+        toks = [_row_tokens(r) for r in rows]
+        for t in set().union(*toks):
+            if (t == "*" or len(t) >= 4) and sum(1 for x in toks if t in x) >= 0.7 * len(rows):
+                cnt[t] = cnt.get(t, 0) + 1
+    structural = {t for t, n in cnt.items() if n >= max(3, 0.3 * len(groups))}
+    if structural:
+        keep = [(h, rows) for h, rows in groups if sum(1 for r in rows if structural & _row_tokens(r)) >= 0.7 * len(rows)]
+    else:       # pas de mot commun : on garde les groupes de taille et de longueur de ligne comparables au plus grand
+        ref = max(groups, key=lambda g: len(g[1]))
+        ref_len = sum(len(r) for r in ref[1]) / len(ref[1])
+        keep = [(h, rows) for h, rows in groups if len(rows) >= 5 and 0.5 * ref_len <= sum(len(r) for r in rows) / len(rows) <= 2 * ref_len]
+    return keep if sum(len(r) for _h, r in keep) >= 10 else []
+
+
+def structure_digest() -> str:
+    """Comptage EXACT des groupes de la page (calculé par le code) : le petit modèle se trompait en comptant lui-même."""
+    keep = list_groups()
+    if not keep:
+        return ""
+    by = {}
+    for h, r in keep:
+        by.setdefault(len(r), []).append(h)
+    dist = " ; ".join(f"{len(hs)} groupe(s) de {n} ligne(s) : {', '.join(hs)}" for n, hs in sorted(by.items(), key=lambda kv: -len(kv[1])))
+    return ("STRUCTURE EXACTE DE LA PAGE (comptée par le code, fiable) : " + f"{len(keep)} groupes, {sum(len(r) for _h, r in keep)} lignes au total. "
+            + "Répartition : " + dist + ". Détail : " + " ; ".join(f"{h} ({len(r)})" for h, r in keep) + ".")
+
+
+def compose_list(question: str) -> str:
+    """Si on demande une liste COMPLÈTE (« la liste de tous ») : recopie, telle qu'elle est écrite, la liste structurée de la page la plus pertinente."""
+    if not _FULL_LIST.search(question or ""):
+        return ""
+    keep = list_groups()
+    if not keep:
+        return ""
+    total = sum(len(r) for _h, r in keep)
+    if total < 10:
+        return ""
+    out = [f"Voici la liste complète, recopiée telle qu'elle est écrite sur la page ({total} éléments, {len(keep)} groupes) :"]
+    for head, rows in keep:
+        out.append(f"**{head or 'Liste'}** ({len(rows)}) : " + " ; ".join(rows))
+    return "\n\n".join(out)
+
+
 def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1500, on_page=None) -> str:
     """Parcourt un site à partir d'une page (liens du même site) et renvoie le texte des pages lues.
     Avec des mots-clés, les liens dont l'adresse ou le texte parlent du sujet sont suivis en premier (c'est elle qui cherche),
@@ -260,7 +401,8 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
     if words:
         max_pages = max(max_pages, 20)
     stems = [w[:5] for w in words]
-    global last_full, last_ranked
+    global last_full, last_ranked, last_html, last_top_url
+    last_html, last_top_url = {}, ""
     last_full = ""
     last_ranked = []
     queue, seen, pages = [start], {start}, []
@@ -274,6 +416,7 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         txt = _text(raw)
         title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", raw) or [None, url])[1]
         last_full += "\n" + txt
+        last_html[url] = raw
         if _WANT_BEST.search(keywords or ""):
             last_ranked = (last_ranked + [r for r in ranked_rows(txt) if r[0] not in [x[0] for x in last_ranked]])
             last_ranked.sort(key=lambda r: _RANKS[r[1]])
@@ -296,6 +439,9 @@ def crawl(start: str, keywords: str = "", max_pages: int = 12, per_page: int = 1
         queue = sorted(queue + new, key=prio)        # les liens qui parlent du sujet passent devant
     pages.sort(key=lambda p: -p[0])
     total = len(pages)
+    if words:
+        top = [p for p in pages if p[0]]
+        last_top_url = top[0][1] if top else ""
     if words:
         pages = [p for p in pages if p[0]][:4] or pages[:3]      # seulement les pages qui parlent du sujet
     parts = []

@@ -38,6 +38,10 @@ check("rechargement : ta vraie demande reste affichée", sessions._user_text("Va
 from brain import vision
 check("image : les couleurs seulement si on les demande", not vision.wants_design("Qu'est-ce qui est affiché ?") and vision.wants_design("Les contrastes sont bons ?"))
 check("suivi « donne-moi ces 14 écoles » : détecté, mais pas hors contexte", bool(agent._ASK_LIST.search("Bah écoute, donne-moi ces 14 écoles")) and bool(agent._SITE_CTX.search("la page Magie & sorts du Wiki")) and not agent._SITE_CTX.search("bonjour, quel temps fait-il ?"))
+_html = "<details><summary><strong>Feu</strong><span>3 sorts</span></summary><ul><li><span>Boule</span><span>2 etoiles</span><span class='mg-desc'>description ignoree</span></li><li>Brasier 4 mana</li><li>Meteore 5 mana</li></ul></details>" * 1
+_g = web.extract_groups(_html)
+check("liste : groupes extraits, descriptions ignorées", len(_g) == 1 and _g[0][0] == "Feu" and len(_g[0][1]) == 3 and "description" not in " ".join(_g[0][1]))
+check("liste complète : demande détectée, simple question non", bool(web._FULL_LIST.search("fais-moi la liste de tous les sorts")) and not web._FULL_LIST.search("combien y a-t-il d'écoles ?"))
 js = Path(__file__).with_name("webui").joinpath("app.js").read_text(encoding="utf-8")
 check("fil d'activité : suit le bas seulement si on y est", "function feedStick" in js and "if (!L.stick) return" in js and "box.scrollTop = box.scrollHeight; L.feedN" not in js)
 print("TOUT OK" if ok else "DES ECHECS"); raise SystemExit(0 if ok else 1)
